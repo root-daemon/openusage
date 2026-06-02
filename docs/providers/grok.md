@@ -24,7 +24,7 @@ grok login
 
 2. Enable the Grok plugin in OpenUsage settings.
 
-OpenUsage reads the same local auth file that the Grok CLI uses. Access tokens are refreshed automatically when a `refresh_token` is present. If refresh fails, run `grok login` again.
+OpenUsage reads the same local auth file that the Grok CLI uses. Access tokens are refreshed automatically before expiry when a `refresh_token` is present. If refresh fails, run `grok login` again.
 
 ## Endpoint
 

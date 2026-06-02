@@ -196,6 +196,44 @@ describe("grok plugin", () => {
     expect(refreshCall.bodyText).toContain("refresh_token=refresh-token")
   })
 
+  it("uses a still-valid token when proactive refresh is unauthorized", async () => {
+    const ctx = makeCtx()
+    writeAuth(ctx, {
+      key: "old-token",
+      refresh_token: "refresh-token",
+      email: "user@example.com",
+      expires_at: "2026-02-02T00:04:00Z",
+    })
+    ctx.host.http.request.mockImplementation((req) => {
+      if (req.url === REFRESH_URL) {
+        return {
+          status: 401,
+          bodyText: JSON.stringify({ error: "invalid_grant" }),
+        }
+      }
+      if (req.url === BILLING_URL) {
+        return {
+          status: 200,
+          bodyText: JSON.stringify(billingData()),
+        }
+      }
+      if (req.url === SETTINGS_URL) {
+        return {
+          status: 200,
+          bodyText: JSON.stringify({ subscription_tier_display: "SuperGrok Heavy" }),
+        }
+      }
+      return { status: 404, bodyText: "" }
+    })
+
+    const plugin = await loadPlugin()
+    const result = plugin.probe(ctx)
+
+    expect(result.plan).toBe("SuperGrok Heavy")
+    const billingCall = ctx.host.http.request.mock.calls.find((call) => call[0].url === BILLING_URL)[0]
+    expect(billingCall.headers.Authorization).toBe("Bearer old-token")
+  })
+
   it("uses the first non-expired token", async () => {
     const ctx = makeCtx()
     ctx.host.fs.writeText(AUTH_PATH, JSON.stringify({

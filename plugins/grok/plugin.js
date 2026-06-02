@@ -98,7 +98,7 @@
         const body = ctx.util.tryParseJson(resp.bodyText)
         const code = body && ((body.error && body.error.code) || body.error || body.code)
         ctx.host.log.error("Grok auth refresh failed: status=" + resp.status + " code=" + String(code))
-        throw LOGIN_HINT
+        return null
       }
       if (resp.status < 200 || resp.status >= 300) {
         ctx.host.log.warn("Grok auth refresh returned status: " + resp.status)
