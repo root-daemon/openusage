@@ -7,6 +7,8 @@ mod panel;
 mod plugin_engine;
 mod tray;
 #[cfg(target_os = "macos")]
+mod tray_tahoe;
+#[cfg(target_os = "macos")]
 mod webkit_config;
 
 use std::collections::{HashMap, HashSet, VecDeque};

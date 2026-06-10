@@ -47,6 +47,9 @@ fn set_stored_log_level(app_handle: &AppHandle, level: log::LevelFilter) {
 }
 
 pub fn create(app_handle: &AppHandle) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    crate::tray_tahoe::prepare_status_item_defaults();
+
     let tray_icon_path = app_handle
         .path()
         .resolve("icons/tray-icon.png", BaseDirectory::Resource)?;
@@ -154,7 +157,7 @@ pub fn create(app_handle: &AppHandle) -> tauri::Result<()> {
         ],
     )?;
 
-    TrayIconBuilder::with_id("tray")
+    let tray = TrayIconBuilder::with_id("tray")
         .icon(icon)
         .icon_as_template(true)
         .tooltip("OpenUsage")
@@ -238,6 +241,12 @@ pub fn create(app_handle: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app_handle)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        crate::tray_tahoe::adopt_stable_identity(&tray);
+        crate::tray_tahoe::schedule_health_check(app_handle);
+    }
 
     Ok(())
 }

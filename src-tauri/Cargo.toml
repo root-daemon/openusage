@@ -46,8 +46,8 @@ sha2 = "0.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSProcessInfo", "NSString"] }
-objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSScreen", "NSGraphics"] }
+objc2-foundation = { version = "0.3", features = ["NSProcessInfo", "NSString", "NSUserDefaults", "NSValue"] }
+objc2-app-kit = { version = "0.3", features = ["NSAlert", "NSApplication", "NSEvent", "NSGraphics", "NSResponder", "NSScreen", "NSStatusBarButton", "NSStatusItem", "NSView", "NSWindow"] }
 objc2-web-kit = { version = "0.3", features = ["WKPreferences", "WKWebView", "WKWebViewConfiguration"] }
 
 [dev-dependencies]
