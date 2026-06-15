@@ -388,7 +388,9 @@ export async function saveStartOnLogin(value: boolean): Promise<void> {
 
 export async function loadRetirementNoticeDismissedAt(): Promise<number | null> {
   const stored = await store.get<unknown>(RETIREMENT_NOTICE_DISMISSED_AT_KEY);
-  if (typeof stored === "number" && Number.isFinite(stored)) return stored;
+  if (typeof stored === "number" && Number.isFinite(stored) && stored >= 0) {
+    return stored;
+  }
   return null;
 }
 
@@ -402,5 +404,8 @@ export function shouldShowRetirementNotice(
   now: number
 ): boolean {
   if (dismissedAt == null) return true;
+  // A dismissal in the future (clock skew or a manual settings edit) is
+  // invalid; show the notice instead of hiding it indefinitely.
+  if (dismissedAt > now) return true;
   return now - dismissedAt >= RETIREMENT_NOTICE_INTERVAL_MS;
 }

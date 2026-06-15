@@ -466,4 +466,14 @@ describe("settings", () => {
       shouldShowRetirementNotice(now - RETIREMENT_NOTICE_INTERVAL_MS, now)
     ).toBe(true)
   })
+
+  it("shows retirement notice for a future dismissal timestamp", () => {
+    const now = Date.now()
+    expect(shouldShowRetirementNotice(now + 60_000, now)).toBe(true)
+  })
+
+  it("ignores a negative retirement notice dismissal value", async () => {
+    storeState.set("retirementNoticeDismissedAt", -5)
+    await expect(loadRetirementNoticeDismissedAt()).resolves.toBeNull()
+  })
 })
