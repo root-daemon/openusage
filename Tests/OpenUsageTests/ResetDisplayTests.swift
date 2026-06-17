@@ -4,7 +4,7 @@ import XCTest
 /// Covers the relative/absolute reset display: the shared `Formatters.deadlineLabel` (one helper for
 /// every "<verb> + when" string), its absolute day buckets (ported from the original
 /// `formatResetAbsoluteLabel`), and `WidgetData` honoring the global mode for the trailing label,
-/// the opposite-format tooltip, and the "Runs out" projection.
+/// the opposite-format tooltip, and the "Limit in …" run-out projection.
 final class ResetDisplayTests: XCTestCase {
     private func utcCalendar() -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
@@ -75,47 +75,23 @@ final class ResetDisplayTests: XCTestCase {
 
     func testRunningOutEtaHonorsResetDisplayMode() {
         // Halfway through a 10h window with 90/100 used → behind pace, projected run-out ~34m away,
-        // safely before the reset 5h out. The label is the bare "when" — the flame icon is the verb.
+        // safely before the reset 5h out. The label carries its own "Limit" verb (no flame in tests),
+        // so the copy reads "Limit in 34m" / "Limit today at …".
         var data = WidgetData(title: "Session", icon: .symbol("clock"),
                               kind: .percent, used: 90, limit: 100)
         data.resetsAt = Date().addingTimeInterval(5 * 3600)
         data.periodDurationMs = 10 * 3600 * 1000
 
         data.resetDisplayMode = .relative
-        XCTAssertEqual(runningOutEta(data)?.hasSuffix("m"), true)        // compact duration like "34m"
-        XCTAssertEqual(runningOutEta(data)?.contains("Runs out"), false) // no verb — the flame carries it
+        XCTAssertEqual(runningOutEta(data)?.hasPrefix("Limit in "), true) // e.g. "Limit in 34m"
+        XCTAssertEqual(runningOutEta(data)?.hasSuffix("m"), true)         // compact duration like "34m"
 
         data.resetDisplayMode = .absolute
-        // Wall-clock reading ~34m out: "Today …", or "Tomorrow …" when the test runs near local
-        // midnight (`WidgetData` evaluates against the real clock, so the day bucket can roll over).
+        // Wall-clock reading ~34m out: "Limit today at …", or "Limit tomorrow at …" when the test runs
+        // near local midnight (`WidgetData` evaluates against the real clock, so the bucket can roll).
         let absolute = runningOutEta(data)
-        XCTAssertEqual(absolute?.hasPrefix("Today ") == true || absolute?.hasPrefix("Tomorrow ") == true,
-                       true)
-        XCTAssertEqual(absolute?.contains("Runs out"), false)
-    }
-
-    func testBareDeadlineDayBucketsAndSoon() {
-        let calendar = utcCalendar()
-        let now = calendar.date(from: DateComponents(year: 2024, month: 6, day: 1, hour: 12))!
-
-        XCTAssertEqual(Formatters.bareDeadline(at: now.addingTimeInterval(36 * 3600 + 32 * 60),
-                                               mode: .relative, now: now), "1d 12h")
-        XCTAssertEqual(Formatters.bareDeadline(at: now.addingTimeInterval(60),
-                                               mode: .relative, now: now), "Soon")
-        XCTAssertTrue(Formatters.bareDeadline(at: now.addingTimeInterval(2 * 3600),
-                                              mode: .absolute, now: now, calendar: calendar)!
-            .hasPrefix("Today "))
-        XCTAssertTrue(Formatters.bareDeadline(at: now.addingTimeInterval(24 * 3600),
-                                              mode: .absolute, now: now, calendar: calendar)!
-            .hasPrefix("Tomorrow "))
-        // The month abbreviation is locale-formatted, so assert the bucket shape ("<day>, <time>"
-        // — neither Today nor Tomorrow) rather than the English "Jun".
-        let later = Formatters.bareDeadline(at: calendar.date(byAdding: .day, value: 5, to: now)!,
-                                            mode: .absolute, now: now, calendar: calendar)!
-        XCTAssertTrue(later.contains(", "))
-        XCTAssertFalse(later.hasPrefix("Today ") || later.hasPrefix("Tomorrow "))
-        XCTAssertEqual(Formatters.bareDeadline(at: now.addingTimeInterval(-1),
-                                               mode: .absolute, now: now, calendar: calendar), "Soon")
+        XCTAssertEqual(absolute?.hasPrefix("Limit today at ") == true
+                        || absolute?.hasPrefix("Limit tomorrow at ") == true, true)
     }
 
     func testNoResetLabelWithoutResetDate() {

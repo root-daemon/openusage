@@ -98,9 +98,9 @@ struct WidgetRowView: View {
     /// Label with the optional ⓘ note icon beside it, and the pace warning right-aligned on the
     /// same line — one slot, escalating with the `MeterState`. Spent: a flame + "Limit reached",
     /// the terminal state that outranks any pace projection. Running out: a flame + projected
-    /// run-out time; the time is deliberately bare ("1d 12h" ⟷ "Tomorrow 11:49 PM", following the
-    /// global countdown/exact mode) — the flame is the verb, and clicking the time flips the
-    /// global mode like the reset label. Close to limit: a quiet "~3% spare" — the cushion
+    /// run-out time, read as "Limit in 3h 45m" ⟷ "Limit today at 11:49 PM" (following the global
+    /// countdown/exact mode) — clicking the time flips the global mode like the reset label. Close
+    /// to limit: a quiet "~3% spare" — the cushion
     /// projected at reset, matching the meter's tick. Healthy / level / no-data: nothing. Only the
     /// flame carries the severity color — tint on glass is reserved for the symbol while copy
     /// stays secondary like the row's other supporting text; the bar below carries the color.
@@ -125,11 +125,12 @@ struct WidgetRowView: View {
             flameWarning(text: "Limit reached", state: state, accessibility: "Limit reached")
         case .runningOut(let eta, _):
             // `eta == nil` is the float-edge case: the flame stands alone (the projection lives in
-            // the tooltip), rather than printing a misleading time. A shown time follows the global
-            // countdown/exact mode, so — exactly like the reset label — clicking it flips that
-            // mode (lifted reorder previews pass no toggle and render it inert).
+            // the tooltip), rather than printing a misleading time. A shown time reads "Limit in 3h
+            // 45m" (or the exact "Limit today at …"), carrying its own verb and following the global
+            // countdown/exact mode, so — exactly like the reset label — clicking it flips that mode
+            // (lifted reorder previews pass no toggle and render it inert).
             flameWarning(text: eta, state: state,
-                         accessibility: eta.map { "Runs out \($0)" } ?? "Limit reached",
+                         accessibility: eta ?? "Will reach limit",
                          action: eta == nil ? nil : onToggleResetDisplay)
         case .closeToLimit(let spare, _, _):
             Spacer(minLength: 8)
@@ -144,7 +145,7 @@ struct WidgetRowView: View {
         }
     }
 
-    /// Flame icon + optional bare text, carrying the state's projection tooltip — shared by the
+    /// Flame icon + optional label text, carrying the state's projection tooltip — shared by the
     /// spent and running-out cases. Only the flame is severity-tinted; the copy stays secondary
     /// (tint on glass is reserved for the symbol). An optional `action` wraps the warning in a
     /// plain button (the run-out time's countdown/exact toggle).

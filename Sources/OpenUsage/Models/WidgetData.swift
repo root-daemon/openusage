@@ -74,8 +74,9 @@ struct WidgetData: Hashable {
         /// reached". Outranks the pace verdict — a visibly empty bar is never a calmer color.
         case spent
         /// Projected to run out before the reset, or to land right at the limit with no cushion to
-        /// speak of. Red, flame + the bare run-out time. `eta` is `nil` at the float edge where the
-        /// run-out lands essentially at the reset, and whenever the projected cushion rounds to 0%
+        /// speak of. Red, flame + the run-out time ("Limit in 3h 45m"). `eta` is `nil` at the float
+        /// edge where the run-out lands essentially at the reset, and whenever the projected cushion
+        /// rounds to 0%
         /// (≤ limit, so there's no run-out time) — in both cases the flame shows alone rather than a
         /// misleading "0s" or a "~0% spare" amber bar. `projectedFraction` (projected end-of-period
         /// usage ÷ limit) backs the tooltip's overage / "lands at the limit" copy.
@@ -304,8 +305,8 @@ extension WidgetData {
             case .behind:
                 let eta = Pace.secondsToRunOut(used: used, limit: ctx.limit, resetsAt: ctx.resetsAt,
                                                periodDuration: ctx.period, now: now)
-                    .flatMap { Formatters.bareDeadline(at: now.addingTimeInterval($0),
-                                                       mode: resetDisplayMode, now: now) }
+                    .flatMap { Formatters.deadlineLabel("Limit", at: now.addingTimeInterval($0),
+                                                        mode: resetDisplayMode, now: now) }
                 return .runningOut(eta: eta, projectedFraction: result.projectedUsage / ctx.limit)
             }
         }

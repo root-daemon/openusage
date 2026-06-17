@@ -1,8 +1,7 @@
 import Foundation
 
 /// Shared display formatters for live usage data: the mode-aware deadline/reset phrasing
-/// (`deadlineLabel`, `bareDeadline`, `resetRelativeLabel`, `resetAbsoluteLabel`), compact durations,
-/// and USD currency.
+/// (`deadlineLabel`, `resetRelativeLabel`, `resetAbsoluteLabel`), compact durations, and USD currency.
 enum Formatters {
     static func currency(_ amount: Double, fractionDigits: Int = 2) -> String {
         let f = NumberFormatter()
@@ -47,36 +46,6 @@ enum Formatters {
             if dayDiff == 1 { return "\(prefix) tomorrow at \(time)" }
             let day = date.formatted(.dateTime.month(.abbreviated).day())
             return "\(prefix) \(day) at \(time)"
-        }
-    }
-
-    /// The bare "when" with no verb, for spots where an icon already carries the meaning (the
-    /// label line's flame warning): `.relative` → "1d 12h" / "12h 32m", `.absolute` → "Today 5:30 PM" /
-    /// "Tomorrow 11:49 PM" / "Jun 16, 11:59 PM". Imminent deadlines collapse to "Soon", matching
-    /// `deadlineLabel`'s thresholds.
-    static func bareDeadline(
-        at date: Date,
-        mode: ResetDisplayMode,
-        now: Date = Date(),
-        calendar: Calendar = .current
-    ) -> String? {
-        switch mode {
-        case .relative:
-            let seconds = date.timeIntervalSince(now)
-            if seconds <= 5 * 60 { return "Soon" }
-            return compactDuration(seconds)
-        case .absolute:
-            guard date.timeIntervalSince(now) > 0 else { return "Soon" }
-            let dayDiff = calendar.dateComponents(
-                [.day],
-                from: calendar.startOfDay(for: now),
-                to: calendar.startOfDay(for: date)
-            ).day ?? 0
-            let time = TimeFormatSetting.current.shortTime(date)
-            if dayDiff <= 0 { return "Today \(time)" }
-            if dayDiff == 1 { return "Tomorrow \(time)" }
-            let day = date.formatted(.dateTime.month(.abbreviated).day())
-            return "\(day), \(time)"
         }
     }
 
