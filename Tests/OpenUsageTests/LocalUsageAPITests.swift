@@ -16,7 +16,10 @@ final class LocalUsageAPITests: XCTestCase {
                 .progress(label: "Session", used: 42, limit: 100, format: .percent,
                           resetsAt: OpenUsageISO8601.date(from: "2026-03-26T13:00:00.161Z"),
                           periodDurationMs: 18_000_000),
-                .text(label: "Today", value: "$5.17 · 9.2M tokens")
+                .values(label: "Today", values: [
+                    MetricValue(number: 5.17, kind: .dollars),
+                    MetricValue(number: 9_200_000, kind: .count)
+                ])
             ],
             refreshedAt: refreshedAt
         )
@@ -62,7 +65,7 @@ final class LocalUsageAPITests: XCTestCase {
         XCTAssertTrue(progress.keys.contains("color"))        // explicit null, like the original
 
         let text = try XCTUnwrap(lines.first { $0["type"] as? String == "text" })
-        XCTAssertEqual(text["value"] as? String, "$5.17 · 9.2M tokens")
+        XCTAssertEqual(text["value"] as? String, "$5.17 · 9.2M")
         XCTAssertTrue(text.keys.contains("subtitle"))
     }
 

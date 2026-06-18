@@ -47,7 +47,7 @@ Methods other than `GET`/`OPTIONS` return **405**; unknown routes return **404**
     {
       "type": "text",
       "label": "Today",
-      "value": "$5.17 · 9.2M tokens",
+      "value": "$5.17 · 9.2M",
       "color": null,
       "subtitle": null
     },

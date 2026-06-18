@@ -203,10 +203,10 @@ enum CursorUsageMapper {
         return (false, "")
     }
 
-    /// Append Today / Yesterday / Last 30 Days spend as unbounded `.text` dollar lines, aggregated over
-    /// local-calendar day boundaries. Always appends all three (formatted with a leading "$", including
-    /// "$0.00") so a genuine zero day reads truthfully; callers only invoke this when the CSV fetched and
-    /// parsed, so failures append nothing and the tiles fall back to "No data".
+    /// Append Today / Yesterday / Last 30 Days spend as unbounded `.values` dollar lines, aggregated over
+    /// local-calendar day boundaries. Always appends all three (including a genuine $0.00) so a zero day
+    /// reads truthfully; callers only invoke this when the CSV fetched and parsed, so failures append
+    /// nothing and the tiles fall back to "No data".
     static func appendSpendLines(rows: [CursorUsageCSVRow], now: Date, to lines: inout [MetricLine]) {
         let calendar = Calendar.current
         let startOfToday = calendar.startOfDay(for: now)
@@ -229,15 +229,16 @@ enum CursorUsageMapper {
             }
         }
 
-        lines.append(.text(label: "Today", value: spendDollars(today)))
-        lines.append(.text(label: "Yesterday", value: spendDollars(yesterday)))
-        lines.append(.text(label: "Last 30 Days", value: spendDollars(last30Days)))
+        lines.append(spendLine(label: "Today", dollars: today))
+        lines.append(spendLine(label: "Yesterday", dollars: yesterday))
+        lines.append(spendLine(label: "Last 30 Days", dollars: last30Days))
     }
 
-    /// Sum dollars then snap to integer cents once (avoiding per-row rounding loss and final float
-    /// drift), and always format with a "$" so `WidgetDataStore.firstCurrencyAmount` parses it.
-    private static func spendDollars(_ dollars: Double) -> String {
-        Formatters.currency(Double(CursorPricing.toCents(dollars)) / 100)
+    /// One Cursor spend day as a single dollar value, snapped to integer cents once (avoiding per-row
+    /// rounding loss and float drift) before being carried raw. No `estimated` flag — Cursor spend is
+    /// server-priced, so these tiles stay clean (no ⓘ), unlike the ccusage-derived ones.
+    private static func spendLine(label: String, dollars: Double) -> MetricLine {
+        .values(label: label, values: [MetricValue(number: Double(CursorPricing.toCents(dollars)) / 100, kind: .dollars)])
     }
 
     static func stripeBalanceCents(from response: HTTPResponse?) -> Double {

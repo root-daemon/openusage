@@ -153,26 +153,13 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertEqual(requests.boundedSubtitle, "Resets in 30d")
     }
 
-    func testCreditsRenderDollarValueWithRawCountInvariantToMeterStyle() async {
-        // Codex flex credits lead with the dollar value (4¢/credit): the provider line arrives as
-        // "$40.00 · 1,000 credits" and the row shows it verbatim (no Used/Left flipping), while the
-        // parsed dollar amount still feeds the menu bar's compact value.
+    func testCreditsRenderDollarAndCountCombinedInvariantToMeterStyle() async {
+        // Codex flex credits show the dollar value and the raw count combined ("$40.00 · 1,000
+        // credits"), invariant to the Used/Left meter style, while the dollar value drives the menu
+        // bar's compact reading — all from one `.values` row, no string re-parse.
         let provider = Provider(id: "codex", displayName: "Codex", icon: .providerMark("codex"))
-        let descriptor = WidgetDescriptor(
-            id: "codex.credits",
-            providerID: provider.id,
-            metricLabel: "Credits",
-            sample: {
-                var sample = WidgetData(
-                    title: "Extra Usage",
-                    icon: provider.icon,
-                    kind: .dollars,
-                    used: 0,
-                    limit: nil
-                )
-                sample.preservesRawText = true
-                return sample
-            }()
+        let descriptor = WidgetDescriptor.combined(
+            id: "codex.credits", provider: provider, title: "Extra Usage", metricLabel: "Credits"
         )
         let runtime = TestProviderRuntime(
             provider: provider,
@@ -180,7 +167,7 @@ final class WidgetDataStoreTests: XCTestCase {
             snapshot: ProviderSnapshot(
                 providerID: provider.id,
                 displayName: provider.displayName,
-                lines: [.text(label: "Credits", value: CodexUsageMapper.creditsLabel(remaining: 1000))]
+                lines: [.values(label: "Credits", values: CodexUsageMapper.creditValues(remaining: 1000))]
             )
         )
         let defaults = makeUserDefaults("codex-credits")
@@ -195,8 +182,8 @@ final class WidgetDataStoreTests: XCTestCase {
         store.meterStyle = .remaining
         let remaining = store.data(for: descriptor)
         XCTAssertFalse(remaining.isBounded)
-        XCTAssertEqual(remaining.unboundedDetail, "$40.00 · 1,000 credits")
-        XCTAssertEqual(remaining.used, 40.0)   // parsed dollars → compact tray value
+        XCTAssertEqual(remaining.unboundedDetail, "$40.00 · 1K credits")
+        XCTAssertEqual(remaining.menuBarValue, "$40")   // dollar value → compact tray reading
         XCTAssertNil(remaining.unboundedSubtitle)
 
         store.meterStyle = .used
@@ -205,13 +192,11 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertEqual(used.headline, remaining.headline)
     }
 
-    func testRateLimitResetsTileShowsCountInTrayAndRawTextInPopover() async {
-        // Regression: the menu-bar tile and the popover row must resolve from one value. The provider
-        // line is "1 available" — the popover shows it verbatim while the tray uses the parsed count.
-        // A prior bug backed the tile with display text only, leaving `used` at 0, so a pinned tile
-        // read "0" while the popover correctly read "1 available".
+    func testRateLimitResetsTileShowsCountInTrayAndPopover() async {
+        // Regression (#641): the menu-bar tile and the popover row resolve from one raw number, so a
+        // pinned tile can't read "0" while the popover reads "1". The count is carried raw.
         let provider = Provider(id: "codex", displayName: "Codex", icon: .providerMark("codex"))
-        let descriptor = WidgetDescriptor.verbatimCount(
+        let descriptor = WidgetDescriptor.values(
             id: "codex.rateLimitResets",
             provider: provider,
             title: "Rate Limit Resets",
@@ -223,7 +208,8 @@ final class WidgetDataStoreTests: XCTestCase {
             snapshot: ProviderSnapshot(
                 providerID: provider.id,
                 displayName: provider.displayName,
-                lines: [.text(label: "Rate Limit Resets", value: "1 available")]
+                lines: [.values(label: "Rate Limit Resets",
+                                values: [MetricValue(number: 1, kind: .count)])]
             )
         )
         let defaults = makeUserDefaults("codex-resets")
@@ -238,13 +224,16 @@ final class WidgetDataStoreTests: XCTestCase {
         let data = store.data(for: descriptor)
         XCTAssertTrue(data.hasData)
         XCTAssertFalse(data.isBounded)
-        XCTAssertEqual(data.unboundedDetail, "1 available")   // popover row
-        XCTAssertEqual(data.displayedValue, 1)                // menu-bar tile's compact value
+        XCTAssertEqual(data.unboundedDetail, "1")   // popover row — bare count, no unit label
+        XCTAssertEqual(data.menuBarValue, "1")      // tray — the real count, never "0"
     }
 
-    func testCreditsLabelFloorsAndClampsBalance() {
-        XCTAssertEqual(CodexUsageMapper.creditsLabel(remaining: 820.9), "$32.80 · 820 credits")
-        XCTAssertEqual(CodexUsageMapper.creditsLabel(remaining: -5), "$0.00 · 0 credits")
+    func testCreditValuesFloorAndClampBalance() {
+        var data = WidgetData(title: "Extra Usage", icon: .providerMark("codex"), kind: .dollars, used: 0, limit: nil)
+        data.values = CodexUsageMapper.creditValues(remaining: 820.9)
+        XCTAssertEqual(data.unboundedDetail, "$32.80 · 820 credits")
+        data.values = CodexUsageMapper.creditValues(remaining: -5)
+        XCTAssertEqual(data.unboundedDetail, "$0.00 · 0 credits")
     }
 
     func testCreditsRenderUpToOneDecimalPlace() {
@@ -262,39 +251,33 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertEqual(credits.unboundedDetail, "820.6 credits left")
     }
 
-    func testCcusageAmountTilesShowLocalEstimateWithAndWithoutSpend() async {
+    func testCcusageSpendSplitsIntoCostTokensAndCombined() async {
+        // One `.values` spend row backs three tiles: cost-only (dollars + ⓘ), tokens-only (the
+        // measured count, no ⓘ), and combined (both, ⓘ because a shown value is estimated).
         let provider = Provider(id: "test", displayName: "Test", icon: .providerMark("codex"))
-        let sample = { (id: String, title: String) in
-            WidgetDescriptor(
-                id: id,
-                providerID: provider.id,
-                metricLabel: title,
-                sample: WidgetData(
-                    title: title,
-                    icon: provider.icon,
-                    kind: .dollars,
-                    used: 0,
-                    limit: nil,
-                    unboundedValueWord: "spent",
-                    infoNote: WidgetData.ccusageEstimateNote
-                )
-            )
-        }
-        let last30 = sample("test.last30", "Last 30 Days")
-        let today = sample("test.today", "Today")
+        let cost = WidgetDescriptor.spend(id: "test.last30", provider: provider, title: "Last 30 Days")
+        let tokens = WidgetDescriptor.tokenSpend(id: "test.last30.tokens", provider: provider,
+                                                 title: "Tokens", metricLabel: "Last 30 Days")
+        let combined = WidgetDescriptor.combined(id: "test.last30.combined", provider: provider,
+                                                 title: "Combined", metricLabel: "Last 30 Days")
+        let todayCost = WidgetDescriptor.spend(id: "test.today", provider: provider, title: "Today")
+        let descriptors = [cost, tokens, combined, todayCost]
         let runtime = TestProviderRuntime(
             provider: provider,
-            descriptors: [last30, today],
+            descriptors: descriptors,
             snapshot: ProviderSnapshot(
                 providerID: provider.id,
                 displayName: provider.displayName,
                 lines: [
-                    .text(label: "Last 30 Days", value: "$478.00 · 891K tokens"),
-                    .text(label: "Today", value: "0 tokens")
+                    .values(label: "Last 30 Days", values: [
+                        MetricValue(number: 478.0, kind: .dollars, estimated: true),
+                        MetricValue(number: 891_000, kind: .count)
+                    ]),
+                    .values(label: "Today", values: [MetricValue(number: 0, kind: .count)])
                 ]
             )
         )
-        let registry = WidgetRegistry(providers: [provider], descriptors: [last30, today])
+        let registry = WidgetRegistry(providers: [provider], descriptors: descriptors)
         let cache = ProviderSnapshotCache(
             userDefaults: makeUserDefaults("ccusage-estimate"),
             storageKey: "snapshots",
@@ -304,14 +287,30 @@ final class WidgetDataStoreTests: XCTestCase {
         let store = WidgetDataStore(registry: registry, providers: [runtime], cache: cache)
         await store.refreshAll()
 
-        let last30Data = store.data(for: last30)
-        XCTAssertEqual(last30Data.valueText, "$478.00")
-        XCTAssertEqual(last30Data.infoNote, WidgetData.ccusageEstimateNote)
-        XCTAssertNil(last30Data.unboundedSubtitle)
+        // Cost-only: the dollars, with the ⓘ (locally estimated).
+        let costData = store.data(for: cost)
+        XCTAssertEqual(costData.valueText, "$478.00")
+        XCTAssertEqual(costData.unboundedDetail, "$478.00 spent")
+        XCTAssertEqual(costData.infoNote, WidgetData.ccusageEstimateNote)
 
-        let todayData = store.data(for: today)
+        // Tokens-only: the measured count, abbreviated and unlabeled, no ⓘ; the tooltip has every digit.
+        let tokenData = store.data(for: tokens)
+        XCTAssertEqual(tokenData.unboundedDetail, "891K")
+        XCTAssertEqual(tokenData.menuBarValue, "891K")
+        XCTAssertEqual(tokenData.unboundedTooltip, "891,000")
+        XCTAssertNil(tokenData.infoNote)
+
+        // Combined: both values joined; the tray glances at the leading dollar value, the tooltip is full.
+        let combinedData = store.data(for: combined)
+        XCTAssertEqual(combinedData.unboundedDetail, "$478.00 · 891K")
+        XCTAssertEqual(combinedData.menuBarValue, "$478")
+        XCTAssertEqual(combinedData.unboundedTooltip, "$478.00 · 891,000")
+        XCTAssertEqual(combinedData.infoNote, WidgetData.ccusageEstimateNote)
+
+        // A day with tokens but no priced cost: the cost tile reads $0.00 with no ⓘ.
+        let todayData = store.data(for: todayCost)
         XCTAssertEqual(todayData.valueText, "$0.00")
-        XCTAssertEqual(todayData.infoNote, WidgetData.ccusageEstimateNote)
+        XCTAssertNil(todayData.infoNote)
     }
 
     /// `resolveText` builds the resolved row from the descriptor's sample but must reset the fields a

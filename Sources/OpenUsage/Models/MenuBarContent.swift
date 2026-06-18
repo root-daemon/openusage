@@ -83,39 +83,11 @@ enum MenuBarContentBuilder {
         MenuBarContent.Metric(
             id: descriptor.id,
             label: trayLabel(descriptor.metricLabel),
-            value: trayValue(data),
+            value: data.menuBarValue,
             fraction: data.fraction,
             isBounded: data.isBounded,
             hasData: data.hasData
         )
-    }
-
-    /// The tray value: a bounded metric (anything with a bar) reads as a percentage for a quick glance —
-    /// regardless of unit, so Cursor Credits shows e.g. "67%" not "$12,923". Unbounded metrics
-    /// (today/yesterday spend, raw balances) keep their value, compacted for the tray. Follows the global
-    /// used/left meter style via `displayedValue`, and passes the no-data marker through.
-    private static func trayValue(_ data: WidgetData) -> String {
-        guard data.hasData else { return data.valueText }
-        if let limit = data.limit, limit > 0 {
-            let percent = max(0, Int((data.displayedValue / limit * 100).rounded()))
-            return "\(percent)%"
-        }
-        return compactValue(data.displayedValue, kind: data.kind, countSuffix: data.countSuffix)
-    }
-
-    /// Compact, glanceable formatting for unbounded tray values using the platform's standard compact
-    /// notation (12.9K / 3.4M / 1.2B). Values shown in full (< 1,000) drop their decimals. Pinned to
-    /// en_US so USD-denominated numbers render consistently regardless of system locale.
-    private static func compactValue(_ value: Double, kind: MetricKind, countSuffix: String?) -> String {
-        let locale = Locale(identifier: "en_US")
-        let number = abs(value) < 1000
-            ? value.formatted(.number.precision(.fractionLength(0)).locale(locale))
-            : value.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)).locale(locale))
-        switch kind {
-        case .dollars: return "$\(number)"
-        case .count: return countSuffix.map { "\(number) \($0)" } ?? number
-        case .percent: return "\(number)%"
-        }
     }
 
     /// Tray-only label shortening (the dashboard keeps the full names): the long time-window metrics

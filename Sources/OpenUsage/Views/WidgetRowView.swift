@@ -257,6 +257,9 @@ struct WidgetRowView: View {
             }
             .multilineTextAlignment(.trailing)
         }
+        // Hovering the row reveals the exact figures the compact value shortens ("$2,059.07 ·
+        // 1,506,025,363"); empty string when nothing's abbreviated, so no redundant tooltip appears.
+        .help(data.unboundedTooltip ?? "")
     }
 
     /// Small ⓘ next to the label; on hover it explains the row's `infoNote` (e.g. that a ccusage dollar

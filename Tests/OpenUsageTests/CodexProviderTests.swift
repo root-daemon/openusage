@@ -60,7 +60,8 @@ final class CodexUsageMapperTests: XCTestCase {
         XCTAssertEqual(progress(mapped.lines, "Weekly")?.used, 50)
         // Credits lead with the dollar value (4¢/credit), then the raw count — no inverted fake cap.
         XCTAssertNil(progress(mapped.lines, "Credits"))
-        XCTAssertEqual(text(mapped.lines, "Credits"), "$4.00 · 100 credits")
+        XCTAssertEqual(values(mapped.lines, "Credits"),
+                       [MetricValue(number: 4.0, kind: .dollars), MetricValue(number: 100, kind: .count, label: "credits")])
         XCTAssertNotNil(progress(mapped.lines, "Session")?.resetsAt)
         XCTAssertEqual(progress(mapped.lines, "Session")?.periodDurationMs, CodexUsageMapper.sessionPeriodMs)
     }
@@ -78,16 +79,24 @@ final class CodexUsageMapperTests: XCTestCase {
             now: makeDate("2026-02-20T16:00:00.000Z")
         )
 
-        XCTAssertEqual(text(lines, "Today"), "$0.75 · 150 tokens")
-        XCTAssertEqual(text(lines, "Yesterday"), "0 tokens")
-        XCTAssertEqual(text(lines, "Last 30 Days"), "$1.75 · 450 tokens")
+        XCTAssertEqual(values(lines, "Today"),
+                       [MetricValue(number: 0.75, kind: .dollars, estimated: true),
+                        MetricValue(number: 150, kind: .count)])
+        XCTAssertEqual(values(lines, "Yesterday"), [MetricValue(number: 0, kind: .count)])
+        XCTAssertEqual(values(lines, "Last 30 Days"),
+                       [MetricValue(number: 1.75, kind: .dollars, estimated: true),
+                        MetricValue(number: 450, kind: .count)])
     }
 
     // Regression: dollar amounts must group thousands (e.g. "$1,200.00") consistently with the
     // headline, which formats through `Formatters.currency`. Credit lines previously used a bare
     // `$%.2f` that dropped the separator.
-    func testCreditsLabelGroupsThousands() {
-        XCTAssertEqual(CodexUsageMapper.creditsLabel(remaining: 30000), "$1,200.00 · 30,000 credits")
+    func testCreditValuesRenderGroupedThousands() {
+        var data = WidgetData(title: "Extra Usage", icon: .providerMark("codex"), kind: .dollars, used: 0, limit: nil)
+        data.values = CodexUsageMapper.creditValues(remaining: 30000)
+        // The row abbreviates ("$1.20K · 30K credits"); the hover tooltip keeps every digit.
+        XCTAssertEqual(data.unboundedDetail, "$1.20K · 30K credits")
+        XCTAssertEqual(data.unboundedTooltip, "$1,200.00 · 30,000 credits")
     }
 
     func testShowsRateLimitResetsBeforeCredits() throws {
@@ -104,7 +113,7 @@ final class CodexUsageMapperTests: XCTestCase {
             now: Date(timeIntervalSince1970: 1_800_000_000)
         )
 
-        XCTAssertEqual(text(mapped.lines, "Rate Limit Resets"), "1 available")
+        XCTAssertEqual(values(mapped.lines, "Rate Limit Resets"), [MetricValue(number: 1, kind: .count)])
 
         let resetIndex = mapped.lines.firstIndex { $0.label == "Rate Limit Resets" }
         let creditsIndex = mapped.lines.firstIndex { $0.label == "Credits" }
@@ -124,7 +133,7 @@ final class CodexUsageMapperTests: XCTestCase {
             now: Date(timeIntervalSince1970: 1_800_000_000)
         )
 
-        XCTAssertEqual(text(mapped.lines, "Rate Limit Resets"), "0 available")
+        XCTAssertEqual(values(mapped.lines, "Rate Limit Resets"), [MetricValue(number: 0, kind: .count)])
     }
 
     func testOmitsRateLimitResetsWhenCountMalformed() throws {
@@ -136,7 +145,7 @@ final class CodexUsageMapperTests: XCTestCase {
             now: Date(timeIntervalSince1970: 1_800_000_000)
         )
 
-        XCTAssertNil(text(mapped.lines, "Rate Limit Resets"))
+        XCTAssertNil(values(mapped.lines, "Rate Limit Resets"))
     }
 
     private func progress(_ lines: [MetricLine], _ label: String) -> (used: Double, limit: Double, resetsAt: Date?, periodDurationMs: Int?)? {
@@ -146,11 +155,11 @@ final class CodexUsageMapperTests: XCTestCase {
         return (used, limit, resetsAt, periodDurationMs)
     }
 
-    private func text(_ lines: [MetricLine], _ label: String) -> String? {
-        guard case .text(_, let value, _, _) = lines.first(where: { $0.label == label }) else {
+    private func values(_ lines: [MetricLine], _ label: String) -> [MetricValue]? {
+        guard case .values(_, let values, _) = lines.first(where: { $0.label == label }) else {
             return nil
         }
-        return value
+        return values
     }
 
     private func makeDate(_ value: String) -> Date {
@@ -183,17 +192,19 @@ final class CodexProviderTests: XCTestCase {
         // ...but local ccusage spend exists, so the snapshot shows the spend lines and NOT the
         // "No usage data" badge. Regression: the mapper used to append the badge *before* the ccusage
         // lines, leaving a contradictory badge-plus-spend snapshot.
-        XCTAssertEqual(text(snapshot.lines, "Today"), "$0.25 · 150 tokens")
+        XCTAssertEqual(values(snapshot.lines, "Today"),
+                       [MetricValue(number: 0.25, kind: .dollars, estimated: true),
+                        MetricValue(number: 150, kind: .count)])
         XCTAssertFalse(snapshot.lines.contains { line in
             if case .badge(_, let value, _, _) = line { return value == "No usage data" }
             return false
         })
     }
 
-    private func text(_ lines: [MetricLine], _ label: String) -> String? {
-        guard case .text(_, let value, _, _) = lines.first(where: { $0.label == label }) else {
+    private func values(_ lines: [MetricLine], _ label: String) -> [MetricValue]? {
+        guard case .values(_, let values, _) = lines.first(where: { $0.label == label }) else {
             return nil
         }
-        return value
+        return values
     }
 }

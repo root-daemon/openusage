@@ -41,8 +41,17 @@ struct WidgetData: Hashable {
     /// False when no real provider metric backs this tile. The view then shows a "No data" state
     /// instead of the descriptor's placeholder sample numbers. True for real data and gallery samples.
     var hasData: Bool = true
+    /// Raw numbers for an unbounded `.values` row (empty for meters and legacy `.text` rows). The view
+    /// formats these at render time instead of reading a baked string — see `unboundedDetail`.
+    var values: [MetricValue] = []
+    /// Which of `values` this widget renders — cost-only, tokens-only, or the combined `.all`. Set by
+    /// the descriptor factory, so one provider row can back several tiles and the mapper stays oblivious.
+    var selection: ValueSelection = .all
 
     var isBounded: Bool { limit != nil }
+
+    /// `values` projected through `selection` — exactly what this tile shows.
+    var selectedValues: [MetricValue] { selection.apply(to: values) }
 
     var displayedValue: Double {
         guard displayMode == .remaining, let limit else { return used }
@@ -154,7 +163,32 @@ struct WidgetData: Hashable {
     /// sample numbers as if they were measured usage.
     var valueText: String {
         guard hasData else { return Self.noDataHeadline }
-        return valueTextOverride ?? (valuePrefix ?? "") + format(displayedValue)
+        if let valueTextOverride { return valueTextOverride }
+        // A `.values` row's primary reading is its first selected value; meters and legacy `.text` rows
+        // fall through to the bounded/`used` formatting.
+        if let first = selectedValues.first {
+            return (valuePrefix ?? "") + MetricFormatter.number(first.number, kind: first.kind, style: .row)
+        }
+        return (valuePrefix ?? "") + format(displayedValue)
+    }
+
+    /// The menu-bar (tray) reading: a bounded metric glances as a percentage (regardless of unit, so
+    /// Cursor Credits reads "67%", not "$12,923"); an unbounded one shows its selected value compacted
+    /// (1.2M tokens / $3.4K) through the same formatter the popover uses. A status badge with no number
+    /// (e.g. Grok "Disabled") shows its text rather than a misleading "0".
+    var menuBarValue: String {
+        guard hasData else { return valueText }
+        if let limit, limit > 0 {
+            let percent = max(0, Int((displayedValue / limit * 100).rounded()))
+            return "\(percent)%"
+        }
+        if let first = selectedValues.first {
+            return MetricFormatter.string(for: first, style: .tray)
+        }
+        if let valueTextOverride { return valueTextOverride }
+        let number = MetricFormatter.number(displayedValue, kind: kind, style: .tray)
+        if kind == .count, let countSuffix { return "\(number) \(countSuffix)" }
+        return number
     }
 
     /// Large headline on bounded tiles (e.g. `95% left`, `5% used`).
@@ -216,6 +250,21 @@ struct WidgetData: Hashable {
     var unboundedDetail: String {
         guard hasData else { return Self.noDataSubtitle }
         if let valueTextOverride { return valueTextOverride }
+        let selected = selectedValues
+        if !selected.isEmpty {
+            // One value: a lone dollar amount takes the widget's trailing word ("$4.08 spent",
+            // "$1,503 left"); any other single value carries its own unit label ("1.2M tokens",
+            // "1 available"). Several values join into the combined reading ("$4.08 · 1.2M tokens").
+            if selected.count == 1 {
+                let value = selected[0]
+                if value.kind == .dollars, let word = unboundedValueWord {
+                    return "\(MetricFormatter.number(value.number, kind: .dollars, style: .row)) \(word)"
+                }
+                return MetricFormatter.string(for: value, style: .row)
+            }
+            return selected.map { MetricFormatter.string(for: $0, style: .row) }.joined(separator: " · ")
+        }
+        // Legacy unbounded `.text` rows (e.g. Devin extra balance): "<value> <suffix> <word>".
         let word = unboundedValueWord ?? displayMode.label.lowercased()
         if kind == .count, let countSuffix {
             return "\(valueText) \(countSuffix) \(word)"
@@ -229,22 +278,25 @@ struct WidgetData: Hashable {
         return subtitleOverride
     }
 
+    /// Full, un-abbreviated values for the row's hover tooltip — the exact numbers the compact row
+    /// shortens (e.g. "$2,059.07 · 1,506,025,363"). `nil` when nothing is abbreviated (every value is
+    /// already shown in full), so a row like "2" or "$30.88 · 772 credits" gets no redundant tooltip.
+    var unboundedTooltip: String? {
+        guard hasData else { return nil }
+        let selected = selectedValues
+        guard selected.contains(where: { abs($0.number) >= 1000 }) else { return nil }
+        return selected.map { MetricFormatter.string(for: $0, style: .full) }.joined(separator: " · ")
+    }
+
     var resetLabel: String? {
         guard let resetsAt else { return nil }
         return Formatters.resetRelativeLabel(until: resetsAt)
     }
 
+    /// Bounded headline / legacy `.text` formatting, delegated to the shared formatter so the popover
+    /// and the tray always agree. Unbounded `.values` rows format their values directly (`unboundedDetail`).
     private func format(_ value: Double) -> String {
-        switch kind {
-        case .percent:
-            return "\(Int(value.rounded()))%"
-        case .dollars:
-            // Always show cents. A spend estimate of $180.17 must read "$180.17", never "$180" — dropping
-            // the cents for amounts ≥ $100 made our estimates look wrong next to tools that show cents.
-            return Formatters.currency(value, fractionDigits: 2)
-        case .count:
-            return value.formatted(.number.precision(.fractionLength(0...1)).locale(Locale(identifier: "en_US")))
-        }
+        MetricFormatter.number(value, kind: kind, style: .full)
     }
 }
 

@@ -15,13 +15,10 @@ enum CcusageSpendMapper {
         lines.append(dayUsageLine(label: "Yesterday", entry: yesterdayEntry))
 
         let totalTokens = usage.daily.reduce(0) { $0 + $1.totalTokens }
-        let costValues = usage.daily.compactMap(\.costUSD)
-        let totalCost = costValues.isEmpty ? nil : costValues.reduce(0, +)
+        let costSamples = usage.daily.compactMap(\.costUSD)
+        let totalCost = costSamples.isEmpty ? nil : costSamples.reduce(0, +)
         if totalTokens > 0 {
-            lines.append(.text(
-                label: "Last 30 Days",
-                value: costAndTokensLabel(tokens: totalTokens, costUSD: totalCost)
-            ))
+            lines.append(.values(label: "Last 30 Days", values: spendValues(tokens: totalTokens, costUSD: totalCost)))
         }
     }
 
@@ -58,33 +55,20 @@ enum CcusageSpendMapper {
     }
 
     private static func dayUsageLine(label: String, entry: CcusageDay?) -> MetricLine {
-        .text(label: label, value: costAndTokensLabel(tokens: entry?.totalTokens ?? 0, costUSD: entry?.costUSD))
+        .values(label: label, values: spendValues(tokens: entry?.totalTokens ?? 0, costUSD: entry?.costUSD))
     }
 
-    private static func costAndTokensLabel(tokens: Int, costUSD: Double?) -> String {
-        var parts: [String] = []
+    /// One period's spend as raw values: the estimated dollars (only when ccusage priced the period)
+    /// followed by the measured token count. The token value carries no unit label — the row reads
+    /// "$4.08 · 41.3M", with the count understood as tokens from context. A cost-only tile renders the
+    /// dollars (with the ⓘ), a tokens-only tile the count (no ⓘ), and a combined tile both — all from
+    /// this one row, no fused string and nothing for the menu bar to re-parse.
+    private static func spendValues(tokens: Int, costUSD: Double?) -> [MetricValue] {
+        var values: [MetricValue] = []
         if let costUSD {
-            parts.append(Formatters.currency(costUSD))
+            values.append(MetricValue(number: costUSD, kind: .dollars, estimated: true))
         }
-        parts.append("\(formatTokens(tokens)) tokens")
-        return parts.joined(separator: " · ")
-    }
-
-    private static func formatTokens(_ tokens: Int) -> String {
-        let absValue = abs(tokens)
-        let sign = tokens < 0 ? "-" : ""
-        let units: [(threshold: Double, divisor: Double, suffix: String)] = [
-            (1_000_000_000, 1_000_000_000, "B"),
-            (1_000_000, 1_000_000, "M"),
-            (1_000, 1_000, "K")
-        ]
-        for unit in units where Double(absValue) >= unit.threshold {
-            let scaled = Double(absValue) / unit.divisor
-            let formatted = scaled >= 10
-                ? String(Int(scaled.rounded()))
-                : String(format: "%.1f", scaled).replacingOccurrences(of: ".0", with: "")
-            return sign + formatted + unit.suffix
-        }
-        return "\(tokens)"
+        values.append(MetricValue(number: Double(tokens), kind: .count))
+        return values
     }
 }

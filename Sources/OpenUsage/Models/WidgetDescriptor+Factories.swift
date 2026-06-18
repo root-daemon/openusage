@@ -48,20 +48,58 @@ extension WidgetDescriptor {
                                 periodDurationMs: periodDurationMs))
     }
 
-    /// Unbounded spend tile reading "$12.34 spent". `estimated` adds the ⓘ explaining the number
-    /// is imputed locally (ccusage) rather than billed; server-backed spend stays clean.
-    static func spend(
+    /// Unbounded numeric row backed by a provider `.values` line. `selection` decides which of the
+    /// row's values this tile renders (cost-only, tokens-only, or the combined `.all`); `valueWord` is
+    /// the trailing word for a lone dollar value ("spent", "left"). The ⓘ for a locally-estimated
+    /// dollar amount is data-driven (set when a shown value is `estimated`), so it isn't a parameter.
+    static func values(
         id: String,
         provider: Provider,
         title: String,
         metricLabel: String? = nil,
-        estimated: Bool = false
+        selection: ValueSelection = .all,
+        valueWord: String? = nil
     ) -> WidgetDescriptor {
-        make(id: id, provider: provider, metricLabel: metricLabel ?? title,
-             sample: WidgetData(title: title, icon: provider.icon,
-                                kind: .dollars, used: 0, limit: nil,
-                                unboundedValueWord: "spent",
-                                infoNote: estimated ? WidgetData.ccusageEstimateNote : nil))
+        // `kind` is unused for `.values` rendering (each value carries its own), but a count-only tile
+        // reads tidier seeded as `.count`; everything else defaults to `.dollars`.
+        let kind: MetricKind = { if case .kind(let only) = selection { return only }; return .dollars }()
+        var sample = WidgetData(title: title, icon: provider.icon, kind: kind, used: 0, limit: nil,
+                                unboundedValueWord: valueWord)
+        sample.selection = selection
+        return make(id: id, provider: provider, metricLabel: metricLabel ?? title, sample: sample)
+    }
+
+    /// Cost-only spend tile reading "$12.34 spent" — the dollars of a `.values` spend row.
+    static func spend(
+        id: String,
+        provider: Provider,
+        title: String,
+        metricLabel: String? = nil
+    ) -> WidgetDescriptor {
+        values(id: id, provider: provider, title: title, metricLabel: metricLabel,
+               selection: .kind(.dollars), valueWord: "spent")
+    }
+
+    /// Tokens-only tile reading "1.2M tokens" — the count of a `.values` spend row. No trailing word
+    /// (the value carries its own "tokens" unit) and no ⓘ (token counts are measured, not estimated).
+    static func tokenSpend(
+        id: String,
+        provider: Provider,
+        title: String,
+        metricLabel: String? = nil
+    ) -> WidgetDescriptor {
+        values(id: id, provider: provider, title: title, metricLabel: metricLabel, selection: .kind(.count))
+    }
+
+    /// Combined tile reading "$4.08 · 1.2M tokens" (spend) or "$32.84 · 821 credits" (Codex credits) —
+    /// every value of a `.values` row, joined.
+    static func combined(
+        id: String,
+        provider: Provider,
+        title: String,
+        metricLabel: String? = nil
+    ) -> WidgetDescriptor {
+        values(id: id, provider: provider, title: title, metricLabel: metricLabel, selection: .all)
     }
 
     /// Unbounded dollar balance with a custom trailing word (e.g. "$1,503.00 left").
@@ -75,35 +113,6 @@ extension WidgetDescriptor {
         make(id: id, provider: provider, metricLabel: metricLabel ?? title,
              sample: WidgetData(title: title, icon: provider.icon,
                                 kind: .dollars, used: 0, limit: nil, unboundedValueWord: valueWord))
-    }
-
-    /// Unbounded dollar row rendered verbatim from the provider's `.text` line (e.g. Codex credits
-    /// "$32.84 · 821 credits"); the parsed dollars still feed the menu-bar compact value.
-    static func verbatimDollars(
-        id: String,
-        provider: Provider,
-        title: String,
-        metricLabel: String? = nil
-    ) -> WidgetDescriptor {
-        var sample = WidgetData(title: title, icon: provider.icon,
-                                kind: .dollars, used: 0, limit: nil)
-        sample.preservesRawText = true
-        return make(id: id, provider: provider, metricLabel: metricLabel ?? title, sample: sample)
-    }
-
-    /// Unbounded count rendered verbatim from the provider's `.text` line (e.g. Codex rate-limit
-    /// resets "1 available"); the parsed count still feeds the menu-bar tile's compact value, so the
-    /// tray and the popover never diverge.
-    static func verbatimCount(
-        id: String,
-        provider: Provider,
-        title: String,
-        metricLabel: String? = nil
-    ) -> WidgetDescriptor {
-        var sample = WidgetData(title: title, icon: provider.icon,
-                                kind: .count, used: 0, limit: nil)
-        sample.preservesRawText = true
-        return make(id: id, provider: provider, metricLabel: metricLabel ?? title, sample: sample)
     }
 
     /// Unbounded count resolved from a provider `.badge` line via `valueTextOverride`

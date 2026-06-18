@@ -14,7 +14,7 @@ The popover that opens from the menu bar icon. Providers are sections; each sect
 - Once the balance is spent — actually empty, or so close it rounds to `0` (like `0% left` or `$0.00`) — the bar stays red and the flame reads `Limit reached`, no matter how gentle the burn rate looked. A visibly empty bar never shows a calmer color.
 - **Hover the bar**, the spare note, or the flame for the pace projection at reset — the one number not already on the row: a blue bar shows the cushion you're on course to finish with (`~35% left at reset`), a yellow bar the usage it complements the spare note with (`~92% used at reset`), a red bar how far past the limit you're projected to land (`~12% over limit at reset`, or `~100% used at reset` when you're projected to finish right at it). Once spent it reads `Limit reached`.
 
-**Metrics without a limit** (daily spend, balances) show as a single line like `$4.08 spent`. A small ⓘ next to the name means the number is estimated locally rather than billed — hover it for details.
+**Metrics without a limit** (daily spend, balances) show as a single line like `$4.08 spent` or `1.2M`. The daily spend rows (Today / Yesterday / Last 30 Days) come in three flavors you can add from Customize — cost (`$4.08 spent`), tokens (`1.2M`), or both (`$4.08 · 1.2M`). Big numbers are abbreviated to keep rows tidy (`$2.06K`, `1.5B`) — **hover the row** to see the exact figures. A small ⓘ next to the name means a dollar figure is estimated locally rather than billed — hover it for details; token counts are measured, so they carry no ⓘ.
 
 Rows with a reset date tick every 30 seconds, so countdowns and pace stay live between refreshes.
 

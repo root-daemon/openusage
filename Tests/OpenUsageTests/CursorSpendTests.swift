@@ -209,17 +209,17 @@ final class CursorSpendProviderTests: XCTestCase {
         let cursor = CursorProvider()
         let descriptor = try! XCTUnwrap(cursor.widgetDescriptors.first { $0.id == "cursor.today" })
 
-        for (value, expectedDetail) in [("$12.34", "$12.34 spent"), ("$0.00", "$0.00 spent")] {
+        for (dollars, expectedValue, expectedDetail) in [(12.34, "$12.34", "$12.34 spent"), (0.0, "$0.00", "$0.00 spent")] {
             let runtime = TestProviderRuntime(
                 provider: cursor.provider,
                 descriptors: [descriptor],
                 snapshot: ProviderSnapshot(
                     providerID: cursor.provider.id,
                     displayName: cursor.provider.displayName,
-                    lines: [.text(label: "Today", value: value)]
+                    lines: [.values(label: "Today", values: [MetricValue(number: dollars, kind: .dollars)])]
                 )
             )
-            let defaults = isolatedDefaults("render-\(value)")
+            let defaults = isolatedDefaults("render-\(expectedValue)")
             let store = WidgetDataStore(
                 registry: WidgetRegistry(providers: [cursor.provider], descriptors: [descriptor]),
                 providers: [runtime],
@@ -234,7 +234,7 @@ final class CursorSpendProviderTests: XCTestCase {
             let used = store.data(for: descriptor)
 
             XCTAssertTrue(remaining.hasData)
-            XCTAssertEqual(remaining.valueText, value)
+            XCTAssertEqual(remaining.valueText, expectedValue)
             XCTAssertEqual(remaining.unboundedDetail, expectedDetail)
             // Cursor spend comes from the server CSV export, so it reads as a bare "$X spent" line:
             // no subtitle and no estimate ⓘ (that's reserved for ccusage tiles).
@@ -291,8 +291,13 @@ final class CursorSpendProviderTests: XCTestCase {
 // MARK: - Shared test helpers (file-private; mirror CursorProviderTests)
 
 private func textValue(_ lines: [MetricLine], _ label: String) -> String? {
-    guard case .text(_, let value, _, _) = lines.first(where: { $0.label == label }) else { return nil }
-    return value
+    guard let line = lines.first(where: { $0.label == label }) else { return nil }
+    if case .text(_, let value, _, _) = line { return value }
+    // Cursor spend is now a `.values` row carrying a single dollar value; render it in full.
+    if case .values(_, let values, _) = line, let dollars = values.first(where: { $0.kind == .dollars }) {
+        return MetricFormatter.number(dollars.number, kind: .dollars, style: .full)
+    }
+    return nil
 }
 
 private func makeCursorJWT(sub: String = "google-oauth2|user", exp: Double = 9_999_999_999) -> String {

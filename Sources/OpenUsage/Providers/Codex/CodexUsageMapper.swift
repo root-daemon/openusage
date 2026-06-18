@@ -71,17 +71,17 @@ enum CodexUsageMapper {
         appendAdditionalRateLimits(from: body, to: &lines, now: now)
         appendReviewLimit(from: body, to: &lines, now: now)
 
-        // On-demand rate-limit reset credits ("N available"), shown before Credits — mirrors the JS
-        // plugin (PR #577). A verbatim `.text` line (backed by a `verbatimCount` widget tile) so every
-        // surface resolves from one value: the dashboard/popover read "N available" while the menu-bar
-        // tile shows the parsed count — they never diverge.
+        // On-demand rate-limit reset credits, shown before Credits — mirrors the JS plugin (PR #577).
+        // A `.values` row carries the raw count (no unit label — the row just reads "2"), so the popover
+        // and the menu-bar tile show that same number — no string to re-parse, no tray-reads-0 bug.
         if let resets = readResetCredits(body), resets >= 0 {
             let count = Int(resets.rounded(.down))
-            lines.append(.text(label: "Rate Limit Resets", value: "\(count) available"))
+            lines.append(.values(label: "Rate Limit Resets",
+                                 values: [MetricValue(number: Double(count), kind: .count)]))
         }
 
         if let remaining = readCreditsRemaining(response: response, body: body) {
-            lines.append(.text(label: "Credits", value: creditsLabel(remaining: remaining)))
+            lines.append(.values(label: "Credits", values: creditValues(remaining: remaining)))
         }
 
         // The "no usage data" badge is appended by `CodexProvider.probe` *after* the ccusage spend
@@ -173,12 +173,15 @@ enum CodexUsageMapper {
         return Int(seconds * 1000)
     }
 
-    /// "$32.84 · 821 credits" — dollar value first (remaining × 4¢), then the raw credit count.
-    /// Mirrors the JS plugin's refactored credits display; negative balances clamp to zero.
-    static func creditsLabel(remaining: Double) -> String {
+    /// Codex flex credits as raw values: the dollar value (remaining × 4¢) then the credit count, shown
+    /// combined as "$32.84 · 821 credits". Negative balances clamp to zero.
+    static func creditValues(remaining: Double) -> [MetricValue] {
         let credits = max(0, Int(remaining.rounded(.down)))
         let usd = Double(credits) * creditUSDRate
-        return Formatters.currency(usd) + " · \(credits.formatted(.number.locale(Locale(identifier: "en_US")))) credits"
+        return [
+            MetricValue(number: usd, kind: .dollars),
+            MetricValue(number: Double(credits), kind: .count, label: "credits")
+        ]
     }
 
     /// On-demand reset credits from `rate_limit_reset_credits.available_count`. `ProviderParse.number`

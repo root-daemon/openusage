@@ -63,6 +63,11 @@ enum ProgressFormat: Hashable, Sendable, Codable {
 
 enum MetricLine: Hashable, Sendable, Codable {
     case text(label: String, value: String, colorHex: String? = nil, subtitle: String? = nil)
+    /// An unbounded row carrying one or more raw numbers (see `MetricValue`) — the preferred shape for
+    /// numeric rows. The number is the source of truth; formatting and which value(s) to show happen at
+    /// the display edge, so the menu bar never has to re-parse a finished string. `.text` stays only for
+    /// genuinely string-y rows and a few descriptor-bounded dollar rows.
+    case values(label: String, values: [MetricValue], colorHex: String? = nil)
     case progress(
         label: String,
         used: Double,
@@ -78,6 +83,7 @@ enum MetricLine: Hashable, Sendable, Codable {
         switch self {
         case .text(let label, _, _, _),
              .progress(let label, _, _, _, _, _, _),
+             .values(let label, _, _),
              .badge(let label, _, _, _):
             return label
         }
@@ -105,6 +111,7 @@ enum MetricLine: Hashable, Sendable, Codable {
         case type
         case label
         case value
+        case values
         case used
         case limit
         case format
@@ -117,6 +124,7 @@ enum MetricLine: Hashable, Sendable, Codable {
 
     private enum LineType: String, Codable {
         case text
+        case values
         case progress
         case badge
     }
@@ -131,6 +139,12 @@ enum MetricLine: Hashable, Sendable, Codable {
                 value: try container.decode(String.self, forKey: .value),
                 colorHex: try container.decodeIfPresent(String.self, forKey: .colorHex),
                 subtitle: try container.decodeIfPresent(String.self, forKey: .subtitle)
+            )
+        case .values:
+            self = .values(
+                label: label,
+                values: try container.decode([MetricValue].self, forKey: .values),
+                colorHex: try container.decodeIfPresent(String.self, forKey: .colorHex)
             )
         case .progress:
             self = .progress(
@@ -161,6 +175,11 @@ enum MetricLine: Hashable, Sendable, Codable {
             try container.encode(value, forKey: .value)
             try container.encodeIfPresent(colorHex, forKey: .colorHex)
             try container.encodeIfPresent(subtitle, forKey: .subtitle)
+        case .values(let label, let values, let colorHex):
+            try container.encode(LineType.values, forKey: .type)
+            try container.encode(label, forKey: .label)
+            try container.encode(values, forKey: .values)
+            try container.encodeIfPresent(colorHex, forKey: .colorHex)
         case .progress(let label, let used, let limit, let format, let resetsAt, let periodDurationMs, let colorHex):
             try container.encode(LineType.progress, forKey: .type)
             try container.encode(label, forKey: .label)

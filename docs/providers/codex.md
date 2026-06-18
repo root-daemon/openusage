@@ -8,9 +8,9 @@ Tracks your ChatGPT/Codex subscription limits using the login from the Codex CLI
 |---|---|
 | Session | 5-hour rolling window usage |
 | Weekly | 7-day window usage |
-| Rate Limit Resets | On-demand rate-limit reset credits, shown as e.g. `1 available` |
+| Rate Limit Resets | On-demand rate-limit reset credits, shown as a count (e.g. `2`) |
 | Extra Usage | Flex credits, shown verbatim as dollars + credits (e.g. `$31.84 · 796 credits`) |
-| Today / Yesterday / Last 30 Days | Local spend estimates (see below) |
+| Today / Yesterday / Last 30 Days | Local spend, as cost, tokens, or both (see below) |
 | Plan | Your plan name (optional widget) |
 
 ## Where credentials come from
@@ -19,7 +19,7 @@ Sign in once with the Codex CLI (`codex`); OpenUsage reads the same auth files (
 
 ## The spend tiles
 
-Today / Yesterday / Last 30 Days are computed **locally** from your Codex logs by running `ccusage` through whichever JavaScript package runner you already have — [Bun](https://bun.sh) (`bunx`) is preferred, otherwise `pnpm dlx`, `yarn dlx`, `npm exec`, or `npx`. The dollars are estimated from token counts — that's the ⓘ on those rows. No log data leaves your Mac.
+Today / Yesterday / Last 30 Days are computed **locally** from your Codex logs by running `ccusage` through whichever JavaScript package runner you already have — [Bun](https://bun.sh) (`bunx`) is preferred, otherwise `pnpm dlx`, `yarn dlx`, `npm exec`, or `npx`. Each period is available as a cost tile (`$4.08 spent`), a tokens tile (`1.2M`), or a combined tile (`$4.08 · 1.2M`) — add whichever you want from Customize. The dollars are estimated from token counts (that's the ⓘ); the token counts themselves are measured. No log data leaves your Mac.
 
 ## Troubleshooting
 
@@ -31,4 +31,4 @@ Today / Yesterday / Last 30 Days are computed **locally** from your Codex logs b
 
 `GET https://chatgpt.com/backend-api/wham/usage` with the Codex OAuth token; refresh via `auth.openai.com`. A 401/403 triggers one token refresh and retry.
 
-When the response includes `rate_limit_reset_credits.available_count`, OpenUsage shows that count as the "Rate Limit Resets" row (e.g. `1 available`), placed before Credits.
+When the response includes `rate_limit_reset_credits.available_count`, OpenUsage shows that count as the "Rate Limit Resets" row (e.g. `2`), placed before Credits.

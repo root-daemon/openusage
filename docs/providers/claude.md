@@ -10,7 +10,7 @@ Tracks your Claude subscription limits using the login you already have from Cla
 | Weekly | 7-day window usage |
 | Sonnet | Separate weekly Sonnet limit (plan-dependent) |
 | Extra Usage | Extra-usage credits spent against your monthly cap |
-| Today / Yesterday / Last 30 Days | Local spend estimates (see below) |
+| Today / Yesterday / Last 30 Days | Local spend, as cost, tokens, or both (see below) |
 | Plan | Your plan name (optional widget) |
 
 ## Where credentials come from
@@ -25,7 +25,7 @@ Tokens are refreshed automatically; rotated tokens are written back where they c
 
 ## The spend tiles
 
-Today / Yesterday / Last 30 Days are computed **locally** from your Claude Code logs by running `ccusage` through whichever JavaScript package runner you already have — [Bun](https://bun.sh) (`bunx`) is preferred, otherwise `pnpm dlx`, `yarn dlx`, `npm exec`, or `npx`. The dollars are estimated from token counts — that's what the ⓘ on those rows means. No log data leaves your Mac.
+Today / Yesterday / Last 30 Days are computed **locally** from your Claude Code logs by running `ccusage` through whichever JavaScript package runner you already have — [Bun](https://bun.sh) (`bunx`) is preferred, otherwise `pnpm dlx`, `yarn dlx`, `npm exec`, or `npx`. Each period is available as a cost tile (`$4.08 spent`), a tokens tile (`1.2M`), or a combined tile (`$4.08 · 1.2M`) — add whichever you want from Customize. The dollars are estimated from token counts (that's the ⓘ); the token counts themselves are measured. No log data leaves your Mac.
 
 ## Troubleshooting
 

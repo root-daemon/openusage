@@ -96,6 +96,15 @@ enum LocalUsageAPI {
                 try container.encode(value, forKey: .value)
                 try container.encode(color, forKey: .color)        // explicit null, like the original
                 try container.encode(subtitle, forKey: .subtitle)
+            case .values(let label, let values, let color):
+                // Serialize as the original `text` shape (one combined `value` string) so existing
+                // local-API integrations keep working: dollars in full, counts compact — exactly the
+                // string the mapper used to produce (e.g. "$5.17 · 9.2M tokens").
+                try container.encode("text", forKey: .type)
+                try container.encode(label, forKey: .label)
+                try container.encode(Self.legacyValueString(values), forKey: .value)
+                try container.encode(color, forKey: .color)
+                try container.encode(String?.none, forKey: .subtitle)
             case .progress(let label, let used, let limit, let format, let resetsAt, let periodDurationMs, let color):
                 try container.encode("progress", forKey: .type)
                 try container.encode(label, forKey: .label)
@@ -112,6 +121,14 @@ enum LocalUsageAPI {
                 try container.encode(color, forKey: .color)
                 try container.encode(subtitle, forKey: .subtitle)
             }
+        }
+
+        /// The legacy combined string for a `.values` row: each value formatted (dollars full so cents
+        /// survive, counts compact like the mapper's old `formatTokens`) and joined with " · ".
+        private static func legacyValueString(_ values: [MetricValue]) -> String {
+            values
+                .map { MetricFormatter.string(for: $0, style: $0.kind == .count ? .tray : .full) }
+                .joined(separator: " · ")
         }
     }
 }

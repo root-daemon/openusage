@@ -25,8 +25,13 @@ of the number, not by the provider:
   - `.dollars` for a capped dollar amount (credits with a ceiling),
   - `.count(suffix:)` for a capped count (e.g. requests per cycle).
   - Add `resetsAt` when the window resets at a known time, and `periodDurationMs` for the cycle length.
-- **`.text`** — an unbounded value shown as-is, like `$12.34 spent`. Use it when there's no limit to draw a
-  bar against.
+- **`.values`** — an unbounded row carrying one or more raw numbers (each a `MetricValue`: a number, its
+  kind, an optional unit label like `"tokens"`). Use it for any limitless numeric row — a spend day carries
+  dollars *and* tokens, Codex credits carry dollars *and* a count. The widget picks which to show
+  (cost-only, tokens-only, or both) via its descriptor, and formatting happens at the display edge, so the
+  menu bar never re-parses a string. Prefer this for numbers.
+- **`.text`** — a value shown as-is, like `$12.34 spent`. Use it only for genuinely string-y rows, or a
+  capped dollar amount whose limit lives on the descriptor.
 - **`.badge`** — a short status pill, like `Disabled` or a pay-as-you-go cap. Use it for state rather than
   a fillable number.
 
@@ -42,7 +47,7 @@ silently.
    mapper, conforming to `ProviderRuntime`. Reuse the shared helpers in `Support/` (`ProviderParse` for
    JSON/number/percent parsing, `OpenUsageISO8601` for timestamps) instead of copying them.
 3. **Declare its widgets.** Expose the provider's metrics as `WidgetDescriptor`s using the factories in
-   `WidgetDescriptor+Factories.swift` (`percent`, `boundedDollars`, `spend`, `badge`, and so on).
+   `WidgetDescriptor+Factories.swift` (`percent`, `boundedDollars`, `spend`, `tokenSpend`, `combined`, `values`, `badge`, and so on).
 4. **Register it.** Add the provider to the list in `AppContainer`.
 5. **Test it.** Add focused tests under `Tests/OpenUsageTests/`, including a mapper test that feeds a
    sample API response and checks the resulting metric lines.

@@ -171,7 +171,9 @@ final class ClaudeProviderTests: XCTestCase {
 
         XCTAssertEqual(snapshot.plan, "Pro")
         XCTAssertNotNil(snapshot.lines.first(where: { $0.label == "Session" }))
-        XCTAssertEqual(text(snapshot.lines, "Today"), "$0.25 · 150 tokens")
+        XCTAssertEqual(values(snapshot.lines, "Today"),
+                       [MetricValue(number: 0.25, kind: .dollars, estimated: true),
+                        MetricValue(number: 150, kind: .count)])
         XCTAssertEqual(processRunner.lastCcusageEnvironment?["CLAUDE_CONFIG_DIR"], "/tmp/claude")
         XCTAssertTrue(httpClient.requests.contains { $0.url.absoluteString == "https://api.anthropic.com/api/oauth/usage" })
     }
@@ -293,11 +295,11 @@ final class ClaudeProviderTests: XCTestCase {
         return value
     }
 
-    private func text(_ lines: [MetricLine], _ label: String) -> String? {
-        guard case .text(_, let value, _, _) = lines.first(where: { $0.label == label }) else {
+    private func values(_ lines: [MetricLine], _ label: String) -> [MetricValue]? {
+        guard case .values(_, let values, _) = lines.first(where: { $0.label == label }) else {
             return nil
         }
-        return value
+        return values
     }
 
     private static func progress(_ lines: [MetricLine], _ label: String) -> (used: Double, limit: Double, resetsAt: Date?, periodDurationMs: Int?)? {
