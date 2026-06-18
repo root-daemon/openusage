@@ -230,7 +230,9 @@ final class WidgetDataStore {
             // trailing word) comes from the descriptor's sample; the live numbers come from the line.
             var data = descriptor.sample
             data.values = values
-            data.hasData = true
+            // A tile whose selection finds no value (e.g. a cost-only tile on a day ccusage couldn't
+            // price) has nothing real to show — render "No data" rather than a misleading $0.00 / 0.
+            data.hasData = !data.selectedValues.isEmpty
             // The ⓘ is data-driven: it shows when a *shown* value is locally estimated (a spend row's
             // dollars) and stays off for a measured one (its tokens), so the tokens-only tile reads clean.
             data.infoNote = data.selectedValues.contains(where: \.estimated)

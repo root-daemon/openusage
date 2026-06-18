@@ -307,10 +307,11 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertEqual(combinedData.unboundedTooltip, "$478.00 · 891,000")
         XCTAssertEqual(combinedData.infoNote, WidgetData.ccusageEstimateNote)
 
-        // A day with tokens but no priced cost: the cost tile reads $0.00 with no ⓘ.
+        // A day with tokens but no priced cost: the cost-only tile finds no dollar value, so it reads
+        // "No data" rather than a misleading $0.00.
         let todayData = store.data(for: todayCost)
-        XCTAssertEqual(todayData.valueText, "$0.00")
-        XCTAssertNil(todayData.infoNote)
+        XCTAssertFalse(todayData.hasData)
+        XCTAssertEqual(todayData.valueText, WidgetData.noDataHeadline)
     }
 
     /// `resolveText` builds the resolved row from the descriptor's sample but must reset the fields a
