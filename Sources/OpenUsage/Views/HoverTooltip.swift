@@ -1,41 +1,33 @@
+import AppKit
 import SwiftUI
 
-/// An in-app replacement for SwiftUI's `.help()` tooltip. The native tooltip has a long,
-/// system-controlled first-hover delay (~1.5-2s before the first tooltip in a window appears; it
-/// reshows later ones almost instantly) that no public API shortens, so the row's exact figures felt
-/// slow to reveal on the first hover. This shows a styled bubble after a short, fixed delay we own.
+/// A hover tooltip that behaves like the native `.help()` tooltip but appears after a delay we control
+/// (the native one waits ~1.5-2s on the first hover, with no public API to shorten) and is placed
+/// above the cursor, centered on it.
 ///
-/// Two pieces: `.hoverTooltip(_:)` on a hover target reports its text and frame, and a single
-/// `.hoverTooltipContainer()` at the popover root draws the bubble. The bubble is drawn at the root,
-/// not inside the hovered view, so it escapes the dashboard/settings/customize scroll views — those
-/// clip their content, so an in-row bubble would be cut off near a scroll edge. The target publishes
-/// its text and bounds up the tree via an anchor preference; the container resolves that anchor in its
-/// own geometry, places the bubble just below the target (flipping above when it would overflow the
-/// bottom), and clamps it inside the popover.
+/// It's drawn in its own borderless, non-activating, click-through `NSPanel` — not a SwiftUI overlay.
+/// A SwiftUI overlay lives inside the popover's window and is clipped to it (and to the dashboard's
+/// scroll view), so it can't float freely the way a tooltip must. The panel sits at `.popUpMenu` level
+/// (above the status-item popover), never becomes key and never activates the app (shown via
+/// `orderFrontRegardless()`), which is the documented carve-out that keeps it from dismissing the
+/// transient popover; `ignoresMouseEvents` makes it click-through so it can't steal the hover that
+/// spawned it.
+///
+/// Usage: `.hoverTooltip(_:)` on any hover target. No root container is needed — the panel is a
+/// separate window owned by `TooltipPresenter`.
 
-/// The active tooltip's text, an anchor on the hovered view's frame, and its nesting depth. A hover
-/// over a nested control sits inside both the child and its container, so both publish a request after
-/// the delay; the depth lets the more specific (deeper) one win.
-private struct TooltipRequest {
-    let text: String
-    let anchor: Anchor<CGRect>
-    let depth: Int
-}
-
-private struct TooltipRequestKey: PreferenceKey {
-    static let defaultValue: TooltipRequest? = nil
-    static func reduce(value: inout TooltipRequest?, nextValue: () -> TooltipRequest?) {
-        // Keep the deepest live request so a nested control's tooltip beats its container's (the ⓘ note
-        // over the row figures, or "Clear Shortcut" over the shortcut field) regardless of preference
-        // traversal order. Targets that aren't showing contribute nil and drop out.
-        guard let next = nextValue() else { return }
-        guard let current = value else { value = next; return }
-        if next.depth > current.depth { value = next }
+extension View {
+    /// Shows `text` in a hover tooltip after a short delay, positioned above the cursor. `nil` or empty
+    /// shows nothing, so the many `someTooltip ?? ""` call sites keep their "no tooltip when blank"
+    /// behavior. The text is also exposed as an accessibility hint — the part `.help()` gave VoiceOver.
+    func hoverTooltip(_ text: String?) -> some View {
+        modifier(HoverTooltipModifier(text: text))
     }
 }
 
-/// Nesting depth of a `.hoverTooltip` target. Each target bumps it for its descendants, so a child's
-/// request outranks its container's in `TooltipRequestKey.reduce`.
+/// Per-target nesting depth so a nested control's tooltip beats its container's when a hover sits in
+/// both (e.g. the clear button inside the Settings shortcut field). Each target bumps it for its
+/// descendants; `TooltipPresenter` shows the deepest active one.
 private struct TooltipDepthKey: EnvironmentKey {
     static let defaultValue = 0
 }
@@ -47,40 +39,13 @@ private extension EnvironmentValues {
     }
 }
 
-extension View {
-    /// Shows `text` in a custom hover tooltip after a short delay. `nil` or empty shows nothing, so the
-    /// many `someTooltip ?? ""` call sites keep their "no tooltip when blank" behavior. The text is also
-    /// exposed as an accessibility hint — the part `.help()` contributed to VoiceOver.
-    func hoverTooltip(_ text: String?) -> some View {
-        modifier(HoverTooltipModifier(text: text))
-    }
-
-    /// Draws the hover tooltip for any `.hoverTooltip(_:)` target beneath this point. Apply once, at the
-    /// popover root, above the scroll views so the bubble can extend past their clipped bounds.
-    func hoverTooltipContainer() -> some View {
-        overlayPreferenceValue(TooltipRequestKey.self) { request in
-            GeometryReader { proxy in
-                if let request {
-                    TooltipBubble(text: request.text, target: proxy[request.anchor], bounds: proxy.size)
-                }
-            }
-            // Never intercept the hover or clicks of the rows beneath, or the bubble would steal the
-            // hover that spawned it and flicker.
-            .allowsHitTesting(false)
-        }
-    }
-}
-
 private struct HoverTooltipModifier: ViewModifier {
     let text: String?
     @Environment(\.tooltipDepth) private var depth
-    @State private var isShowing = false
-    @State private var revealTask: Task<Void, Never>?
-
-    /// Delay before the bubble appears. Short enough to feel responsive on the first hover (the native
-    /// tooltip's slow first appearance is the whole reason this exists), long enough that brushing the
-    /// cursor across rows doesn't flash bubbles.
-    private static let revealDelay: Duration = .milliseconds(350)
+    @Environment(\.reduceTransparencyEffective) private var reduceTransparency
+    /// Stable per-target identity, so the presenter can track which targets are currently hovered and
+    /// drop this one on exit.
+    @State private var id = UUID()
 
     /// `nil` (no tooltip) for a missing or blank string, collapsing the two "absent" cases.
     private var resolved: String? {
@@ -94,100 +59,190 @@ private struct HoverTooltipModifier: ViewModifier {
             // inside both.
             .environment(\.tooltipDepth, depth + 1)
             .accessibilityHint(resolved ?? "")
-            .onHover { inside in
-                guard resolved != nil else { return }
-                if inside { scheduleReveal() } else { cancelReveal() }
+            // Continuous (not plain `onHover`) so the presenter always has the live hover state; it
+            // reads the cursor itself at show time, so the reported location is unused here.
+            .onContinuousHover { phase in
+                guard let resolved else { return }
+                switch phase {
+                case .active:
+                    TooltipPresenter.shared.enter(id: id, text: resolved, depth: depth,
+                                                  reduceTransparency: reduceTransparency)
+                case .ended:
+                    TooltipPresenter.shared.exit(id: id)
+                }
             }
-            .onDisappear { cancelReveal() }
-            .anchorPreference(key: TooltipRequestKey.self, value: .bounds) { anchor in
-                guard isShowing, let resolved else { return nil }
-                return TooltipRequest(text: resolved, anchor: anchor, depth: depth)
-            }
-    }
-
-    private func scheduleReveal() {
-        revealTask?.cancel()
-        revealTask = Task { @MainActor in
-            try? await Task.sleep(for: Self.revealDelay)
-            guard !Task.isCancelled else { return }
-            isShowing = true
-        }
-    }
-
-    private func cancelReveal() {
-        revealTask?.cancel()
-        revealTask = nil
-        isShowing = false
+            // A row can be torn down (scroll, screen switch, popover close) without an `.ended`, so
+            // clear our entry here too or the panel could linger.
+            .onDisappear { TooltipPresenter.shared.exit(id: id) }
     }
 }
 
-/// The tooltip bubble, positioned in the container's coordinate space. Sizing hugs short text on one
-/// line yet wraps long copy at a cap — neither a plain `frame(maxWidth:)` (always fills to the cap)
-/// nor `fixedSize` (never wraps) gives that alone, so a hidden single-line probe measures the natural
-/// width and the visible label is framed to `min(natural, cap)`.
-private struct TooltipBubble: View {
-    let text: String
-    let target: CGRect
-    let bounds: CGSize
-    @Environment(\.reduceTransparencyEffective) private var reduceTransparency
-    @State private var idealTextWidth: CGFloat = 0
-    @State private var bubbleSize: CGSize = .zero
+/// Owns the single reused tooltip panel and decides which hovered target is shown. Main-actor isolated:
+/// every entry point is a SwiftUI hover callback (already on the main actor) and it only touches AppKit.
+@MainActor
+private final class TooltipPresenter {
+    static let shared = TooltipPresenter()
 
-    private static let font = Font.system(size: 12)
-    private static let hPadding: CGFloat = 7
-    private static let vPadding: CGFloat = 4
-    private static let cornerRadius: CGFloat = 6
-    /// Vertical gap between the target and the bubble.
-    private static let gap: CGFloat = 4
-    /// Keep-clear inset from the popover edges.
-    private static let margin: CGFloat = 8
-    private static let maxBubbleWidth: CGFloat = 240
-
-    private var maxTextWidth: CGFloat {
-        max(40, min(Self.maxBubbleWidth, bounds.width - 2 * Self.margin) - 2 * Self.hPadding)
+    private struct Target {
+        let text: String
+        let depth: Int
+        let reduceTransparency: Bool
     }
 
-    private var textWidth: CGFloat {
-        min(idealTextWidth, maxTextWidth)
+    /// Targets the cursor is currently inside. More than one only while a hover sits in both a child
+    /// and its container; the deepest wins.
+    private var active: [UUID: Target] = [:]
+    /// The target currently on screen, and the one a pending reveal is scheduled for.
+    private var shownID: UUID?
+    private var pendingID: UUID?
+    private var revealTask: Task<Void, Never>?
+
+    /// Mirrors the native tooltip: a real wait on the first hover, then near-instant reshows for a
+    /// short grace window after one was last shown ("quick mode").
+    private let initialDelay: Duration = .milliseconds(350)
+    private let quickDelay: Duration = .milliseconds(60)
+    private let quickWindow: Duration = .milliseconds(1500)
+    private let clock = ContinuousClock()
+    private var lastHideAt: ContinuousClock.Instant?
+
+    /// Space above the cursor; the panel's bottom edge sits this far above the pointer.
+    private let cursorGap: CGFloat = 10
+
+    private let host = NSHostingView(rootView: AnyView(EmptyView()))
+    private let panel = NonKeyPanel(
+        contentRect: .zero,
+        styleMask: [.borderless, .nonactivatingPanel],   // set once at init; toggling later desyncs activation
+        backing: .buffered,
+        defer: false
+    )
+
+    private init() {
+        // Configure the panel up front (not lazily) so the hosting view is in a window from the start
+        // and `fittingSize` measures correctly on the first show. Default sizing options stay on so the
+        // host has an intrinsic size to report; the bubble is `.fixedSize()`, so that equals the size we
+        // set and the host can't grow the panel out from under us.
+        panel.isFloatingPanel = true
+        panel.level = .popUpMenu                          // above the status-item popover (.statusBar)
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.ignoresMouseEvents = true                   // click-through; never intercepts the hover
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true                            // window shadow follows the bubble's rounded shape
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.animationBehavior = .none
+        panel.contentView = host
     }
 
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            // Probe: single-line natural width, never drawn. Lets the visible label hug short text
-            // yet wrap long copy at the cap.
-            Text(text)
-                .font(Self.font)
-                .fixedSize()
-                .hidden()
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { idealTextWidth = $0 }
+    func enter(id: UUID, text: String, depth: Int, reduceTransparency: Bool) {
+        active[id] = Target(text: text, depth: depth, reduceTransparency: reduceTransparency)
+        refresh()
+    }
 
-            if idealTextWidth > 0 {
-                bubble
-                    .onGeometryChange(for: CGSize.self) { $0.size } action: { bubbleSize = $0 }
-                    .offset(x: originX, y: originY)
-                    // Invisible until measured, then it appears already in its final, in-bounds
-                    // position. Deliberately not animated: the offset depends on the measured size, so
-                    // animating its first change would slide the bubble in from an unplaced spot (it
-                    // would briefly sit out of bounds). A native-style pop avoids that.
-                    .opacity(bubbleSize == .zero ? 0 : 1)
-                    .transaction { $0.animation = nil }
-            }
+    func exit(id: UUID) {
+        guard active[id] != nil else { return }
+        active[id] = nil
+        refresh()
+    }
+
+    /// Reconcile the panel with the deepest active target. Cheap and idempotent, so the per-pixel
+    /// `onContinuousHover` calls mostly hit an early return.
+    private func refresh() {
+        guard let top = active.max(by: { $0.value.depth < $1.value.depth }) else {
+            cancelPending()
+            hide()
+            return
+        }
+        if shownID == top.key { return }            // already showing the right one — don't reposition
+        if shownID != nil {                         // a tooltip is up for another target — switch now
+            present(top.value)
+            shownID = top.key
+            cancelPending()
+            return
+        }
+        if pendingID == top.key { return }          // already scheduled for this target
+        cancelPending()
+        pendingID = top.key
+        let target = top.value
+        let id = top.key
+        let delay = isInQuickMode ? quickDelay : initialDelay
+        revealTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.present(target)
+            self.shownID = id
+            self.pendingID = nil
+            self.revealTask = nil
         }
     }
 
-    private var bubble: some View {
-        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-        return Text(text)
-            .font(Self.font)
+    private var isInQuickMode: Bool {
+        guard let lastHideAt else { return false }
+        return clock.now - lastHideAt < quickWindow
+    }
+
+    private func cancelPending() {
+        revealTask?.cancel()
+        revealTask = nil
+        pendingID = nil
+    }
+
+    private func hide() {
+        if shownID != nil { lastHideAt = clock.now }   // open the quick-mode window only after a real show
+        shownID = nil
+        if panel.isVisible { panel.orderOut(nil) }
+    }
+
+    private func present(_ target: Target) {
+        host.rootView = AnyView(TooltipBubble(text: target.text, reduceTransparency: target.reduceTransparency))
+        host.layoutSubtreeIfNeeded()
+        let size = host.fittingSize
+        panel.setContentSize(size)
+        panel.setFrameOrigin(origin(for: size, cursor: NSEvent.mouseLocation))
+        panel.orderFrontRegardless()                   // show without activating the app or taking key
+    }
+
+    /// Above the cursor and centered on it, clamped to the cursor's screen; flips below the cursor when
+    /// it would clip the top. All math in Cocoa screen coordinates (bottom-left origin, y grows up),
+    /// matching `NSEvent.mouseLocation` and `NSScreen.visibleFrame`.
+    private func origin(for size: CGSize, cursor: NSPoint) -> NSPoint {
+        var x = cursor.x - size.width / 2
+        var y = cursor.y + cursorGap
+        let screen = NSScreen.screens.first { $0.frame.contains(cursor) } ?? NSScreen.main
+        if let visible = screen?.visibleFrame {
+            x = min(max(x, visible.minX), visible.maxX - size.width)
+            if y + size.height > visible.maxY {
+                y = cursor.y - cursorGap - size.height
+            }
+            y = max(y, visible.minY)
+        }
+        return NSPoint(x: x, y: y)
+    }
+
+}
+
+/// Never becomes key or main, so showing it can't pull focus and dismiss the transient popover.
+private final class NonKeyPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+/// The bubble drawn inside the panel: a frosted material on glass, a solid fill under Reduce
+/// Transparency, with a hairline border. Sizes to its content (`fittingSize` drives the panel size);
+/// the panel's window shadow supplies the drop shadow.
+private struct TooltipBubble: View {
+    let text: String
+    let reduceTransparency: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        Text(text)
+            .font(.system(size: 12))
             .foregroundStyle(.primary)
-            .multilineTextAlignment(.leading)
-            // +1 guards against a rounding-induced wrap when the label is framed to its own ideal width.
-            .frame(width: ceil(textWidth) + 1, alignment: .leading)
-            .padding(.horizontal, Self.hPadding)
-            .padding(.vertical, Self.vPadding)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
             .background {
-                // Solid in the reduced-transparency form (matching the popover's own solid surface),
-                // a frosted material otherwise so the bubble reads like a native tooltip on glass.
                 if reduceTransparency {
                     shape.fill(Color(nsColor: .windowBackgroundColor))
                 } else {
@@ -195,22 +250,5 @@ private struct TooltipBubble: View {
                 }
             }
             .overlay { shape.strokeBorder(.separator, lineWidth: 0.5) }
-            .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
-    }
-
-    /// Leading-aligned to the target, clamped so the bubble never pokes past either side edge.
-    private var originX: CGFloat {
-        let maxX = max(Self.margin, bounds.width - bubbleSize.width - Self.margin)
-        return min(max(target.minX, Self.margin), maxX)
-    }
-
-    /// Above the target by default, so the cursor (resting on the target) doesn't overlay the bubble;
-    /// flips below when there's no room up top, otherwise clamps into bounds.
-    private var originY: CGFloat {
-        let above = target.minY - Self.gap - bubbleSize.height
-        let below = target.maxY + Self.gap
-        if above >= Self.margin { return above }
-        if below + bubbleSize.height <= bounds.height - Self.margin { return below }
-        return max(Self.margin, min(above, bounds.height - bubbleSize.height - Self.margin))
     }
 }
