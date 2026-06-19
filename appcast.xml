@@ -3,6 +3,15 @@
     <channel>
         <title>OpenUsage</title>
         <item>
+            <title>0.7.0-beta.9</title>
+            <pubDate>Fri, 19 Jun 2026 05:08:36 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>69</sparkle:version>
+            <sparkle:shortVersionString>0.7.0-beta.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/robinebers/openusage/releases/download/v0.7.0-beta.9/OpenUsage-0.7.0-beta.9.dmg" length="5575990" type="application/octet-stream" sparkle:edSignature="M9aGSqjzCVCDeNhjqz1m2cnc3aIvHPLBwsfTlrk3ePG/DtjL9i+lpFad7BiFG9fWNz5J9kg3y3us4uhiutXKAQ=="/>
+        </item>
+        <item>
             <title>0.7.0-beta.8</title>
             <pubDate>Thu, 18 Jun 2026 16:18:30 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
