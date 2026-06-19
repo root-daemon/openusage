@@ -129,6 +129,7 @@ cat >"$APP_CONTENTS/Info.plist" <<PLIST
   <key>SUFeedURL</key><string>$FEED_URL</string>
   <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_KEY</string>
   <key>SUEnableAutomaticChecks</key><true/>
+  <key>SUScheduledCheckInterval</key><integer>3600</integer>
 </dict>
 </plist>
 PLIST

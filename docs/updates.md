@@ -6,7 +6,7 @@ they install, so you always get a genuine, unmodified build.
 
 ## How it works
 
-- **Automatic checks.** The app quietly checks for a new version in the background (about once a day).
+- **Automatic checks.** The app quietly checks for a new version in the background (about once an hour).
   When one is found, it offers to download and install it. Because OpenUsage lives in the menu bar, it
   briefly shows a Dock icon while the update window is open, then hides again.
 - **Manual check.** Open **Settings → Updates** and click **Check for Updates…** at any time.
