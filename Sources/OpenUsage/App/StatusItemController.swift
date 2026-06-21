@@ -301,6 +301,11 @@ final class StatusItemController: NSObject {
         // `canBecomeKey` + `.nonactivatingPanel` makes this key without activating the app — no
         // activation race, so the dashboard receives keys on the first try.
         panel.makeKeyAndOrderFront(nil)
+        // Becoming key, AppKit auto-focuses the first control in the key-view loop (the first row's
+        // Used/Left toggle) when system Keyboard Navigation is on — so the popover would open with a
+        // stray focus ring nobody asked for. Drop it; keyboard nav still works (it rides a local key
+        // monitor, not first responder), and Tab from here focuses the first control as expected.
+        clearStrayFocus()
         button.highlight(true)
         startOutsideClickMonitors()
     }
@@ -309,10 +314,25 @@ final class StatusItemController: NSObject {
         // The popover's SwiftUI tree survives `orderOut`, so a tooltip the cursor was resting on gets
         // no hover-exit and would orphan on screen — clear it here, the one chokepoint every close hits.
         HoverTooltips.dismissAll()
+        // Same survival problem for keyboard focus: a clicked plain-styled control (a row's Used/Left
+        // or reset toggle) stays first responder, so its focus ring would reopen with the popover as a
+        // stray blue outline. Drop it on close so every reopen starts unfocused.
+        clearStrayFocus()
         panel.orderOut(nil)
         stopOutsideClickMonitors()
         statusItem.button?.highlight(false)
         anchorTopLeft = nil
+    }
+
+    /// Drops keyboard focus inside the panel so a clicked plain-styled control (a metric row's
+    /// Used/Left + reset toggles) doesn't keep the system focus ring lingering as a stray outline:
+    /// AppKit leaves the control first responder until focus moves, which a click on empty space or a
+    /// close otherwise never does. Skips a live text field / shortcut recorder, whose focus is the
+    /// user's intent — mirrors the `NSText` guard `PopoverKeyReader` uses for the same reason.
+    private func clearStrayFocus() {
+        guard !ShortcutRecorderField.isRecordingActive,
+              !(panel.firstResponder is NSText) else { return }
+        panel.makeFirstResponder(nil)
     }
 
     /// Resizes the panel to the SwiftUI content's ideal size, keeping the top edge pinned under the
@@ -356,7 +376,14 @@ final class StatusItemController: NSObject {
                 // is unreliable for windowless / global events), so the status-button match is correct.
                 let screenPoint = NSEvent.mouseLocation
                 guard !self.shouldKeepPanelOpen(windowID: windowID, windowTypeName: windowTypeName, screenPoint: screenPoint)
-                else { return }
+                else {
+                    // Click landed inside the panel: drop any stray focus ring a previously-clicked
+                    // toggle left behind, the way clicking empty space in a normal window does. The
+                    // monitor fires before the event reaches the view, so a click that lands on
+                    // another control just moves focus there next; empty space leaves it cleared.
+                    if self.panel.frame.contains(screenPoint) { self.clearStrayFocus() }
+                    return
+                }
                 self.hidePanel()
             }
             return event
