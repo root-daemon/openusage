@@ -230,6 +230,28 @@ final class WidgetDataStore {
         snapshots[providerID]?.plan
     }
 
+    /// How long a displayed snapshot may age before the header calls it out. A healthy provider's
+    /// snapshot resets to ~0 on every successful pass and only brushes one interval just before the next
+    /// one, so the threshold sits at two intervals: it fires only when a refresh has actually been missed
+    /// — a refresh loop that keeps failing, or a long-suspended background timer — never on the normal
+    /// per-cycle aging, which would flicker a hint on healthy providers.
+    static let stalenessThreshold = RefreshSetting.interval * 2
+
+    /// A muted "Updated 3h ago" hint for the provider's on-screen snapshot, surfaced only once that
+    /// snapshot has aged past `stalenessThreshold`; `nil` while the data is still current (the common
+    /// case), so the header stays clean until staleness is real. This is the visible counterpart to the
+    /// silent fossilized-cache problem (#582): a failing-refresh loop keeps the last good plan/limits on
+    /// screen, and without this nothing told the user that data was stale. Reads the store's injected
+    /// clock, which tests pin to a fixed value.
+    func stalenessLabel(for providerID: String) -> String? {
+        guard let refreshedAt = snapshots[providerID]?.refreshedAt else { return nil }
+        let age = now().timeIntervalSince(refreshedAt)
+        guard age >= Self.stalenessThreshold, let duration = Formatters.compactDuration(age) else {
+            return nil
+        }
+        return "Updated \(duration) ago"
+    }
+
     var menuBarPrimaryText: String {
         // The tray mirrors the user's widget order: the first placed, enabled tile that has real data
         // drives it, skipping any no-data tile so it never shows a missing metric's placeholder. When

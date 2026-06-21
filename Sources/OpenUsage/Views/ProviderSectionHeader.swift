@@ -4,7 +4,9 @@ import SwiftUI
 /// The name leads with the optional plan badge beside it; the provider mark sits at the trailing
 /// edge. Callers supply only an optional accessory after the mark (drag grip) and an optional
 /// `warning` — the latest refresh error, rendered as a small amber triangle beside the name whose
-/// hover tooltip carries the message (e.g. "Not logged in. Run `codex` to authenticate.").
+/// hover tooltip carries the message (e.g. "Not logged in. Run `codex` to authenticate."). The
+/// optional `staleLabel` ("Updated 3h ago") is the dashboard-only hint that the values shown are an
+/// aged snapshot still revalidating, so fossilized plan/limits never pass for current data.
 struct ProviderSectionHeader<Trailing: View>: View {
     let provider: Provider
     var plan: String?
@@ -13,17 +15,21 @@ struct ProviderSectionHeader<Trailing: View>: View {
     /// so the section shows live feedback while values are being fetched (instead of silently sitting on
     /// the previous, possibly stale, numbers).
     var refreshing: Bool = false
+    /// A muted "Updated X ago" hint shown only when the displayed snapshot has aged past its freshness
+    /// window (dashboard only; `nil` in Customize / reorder previews, which never surface staleness).
+    var staleLabel: String?
     private let trailing: Trailing
 
     /// Header type and icon track the density setting like the rows do, so Compact shrinks the
     /// whole section anatomy — not just the rows under it.
     @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
 
-    init(provider: Provider, plan: String? = nil, warning: String? = nil, refreshing: Bool = false, @ViewBuilder trailing: () -> Trailing) {
+    init(provider: Provider, plan: String? = nil, warning: String? = nil, refreshing: Bool = false, staleLabel: String? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.provider = provider
         self.plan = plan
         self.warning = warning
         self.refreshing = refreshing
+        self.staleLabel = staleLabel
         self.trailing = trailing()
     }
 
@@ -32,11 +38,25 @@ struct ProviderSectionHeader<Trailing: View>: View {
             // Baseline-aligned pair: the plan badge is smaller type, so centering it against
             // the name leaves it floating high — text sits together only on a shared baseline.
             HStack(alignment: .firstTextBaseline, spacing: 5) {
+                // Name + plan keep their width and stay on one line; under width pressure (a long age
+                // string after days asleep) the lower-priority stale label truncates first instead of
+                // wrapping the name to a second line.
                 Text(provider.displayName)
                     .font(.system(size: density.headerPointSize, weight: .semibold))
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
                 if let plan {
                     ProviderPlanBadge(plan: plan)
+                        .layoutPriority(1)
+                }
+                // Tertiary, below the plan in hierarchy: outdated content, not something the user acts on.
+                // Hidden while a refresh is in flight — the spinner already says "working on it".
+                if let staleLabel, !refreshing {
+                    Text(staleLabel)
+                        .font(.system(size: density.planBadgePointSize))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
             if refreshing {
@@ -65,8 +85,8 @@ struct ProviderSectionHeader<Trailing: View>: View {
 }
 
 extension ProviderSectionHeader where Trailing == EmptyView {
-    init(provider: Provider, plan: String? = nil, warning: String? = nil, refreshing: Bool = false) {
-        self.init(provider: provider, plan: plan, warning: warning, refreshing: refreshing) { EmptyView() }
+    init(provider: Provider, plan: String? = nil, warning: String? = nil, refreshing: Bool = false, staleLabel: String? = nil) {
+        self.init(provider: provider, plan: plan, warning: warning, refreshing: refreshing, staleLabel: staleLabel) { EmptyView() }
     }
 }
 
