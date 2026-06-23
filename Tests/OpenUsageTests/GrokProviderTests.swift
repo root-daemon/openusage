@@ -404,6 +404,75 @@ final class GrokProviderTests: XCTestCase {
         XCTAssertNotNil(values(snapshot.lines, "Yesterday"))          // yesterday had real usage
     }
 
+    func testRefreshAppendsUsageTrendFromLog() async {
+        let now = OpenUsageISO8601.date(from: "2026-06-18T12:00:00.000Z")!
+        let files = FakeFiles([
+            GrokAuthStore.authPath: #"{"https://auth.x.ai::client":{"key":"token","refresh_token":"refresh","expires_at":"2026-07-01T00:00:00.000Z"}}"#
+        ])
+        let httpClient = RecordingHTTPClient { request in
+            if request.url == GrokUsageClient.billingURL {
+                return HTTPResponse(statusCode: 200, headers: [:], body: billingBody(used: 2500, monthlyLimit: 10000, onDemandCap: 0))
+            }
+            if request.url == GrokUsageClient.settingsURL {
+                return HTTPResponse(statusCode: 200, headers: [:], body: Data(#"{"subscription_tier_display":"SuperGrok Heavy"}"#.utf8))
+            }
+            return HTTPResponse(statusCode: 404, headers: [:], body: Data())
+        }
+        // 1M input today (06-18), 1M output yesterday (06-17).
+        let log = """
+        {"ts":"2026-06-18T09:00:00.000Z","pid":1,"msg":"model changed","ctx":{"model":"grok-build"}}
+        {"ts":"2026-06-18T10:00:00.000Z","pid":1,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":1000000,"cached_prompt_tokens":0,"completion_tokens":0,"reasoning_tokens":0}}
+        {"ts":"2026-06-17T09:00:00.000Z","pid":2,"msg":"model changed","ctx":{"model":"grok-composer-2.5-fast"}}
+        {"ts":"2026-06-17T10:00:00.000Z","pid":2,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":0,"cached_prompt_tokens":0,"completion_tokens":1000000,"reasoning_tokens":0}}
+        """
+        let scanner = GrokLogUsageScanner(
+            files: FakeFiles(["/home/test/.grok/logs/unified.jsonl": log]),
+            environment: FakeEnvironment(),
+            homeDirectory: { URL(fileURLWithPath: "/home/test") }
+        )
+        let provider = GrokProvider(
+            authStore: GrokAuthStore(files: files, now: { now }),
+            usageClient: GrokUsageClient(httpClient: httpClient),
+            logUsageScanner: scanner,
+            now: { now }
+        )
+
+        let snapshot = await provider.refresh()
+
+        guard case .chart(_, let points, let note) = snapshot.lines.first(where: { $0.label == "Usage Trend" }) else {
+            return XCTFail("expected a Usage Trend chart line")
+        }
+        XCTAssertEqual(note, "Estimated from local logs at API rates")
+        XCTAssertEqual(points.count, 31)
+        XCTAssertEqual(points.last?.value, 1_000_000, "today's tokens land on the last bar")
+        XCTAssertEqual(points[29].value, 1_000_000, "yesterday's tokens land on the second-to-last bar")
+    }
+
+    func testRefreshWithoutLogAppendsNoUsageTrend() async {
+        let now = OpenUsageISO8601.date(from: "2026-06-18T12:00:00.000Z")!
+        let files = FakeFiles([
+            GrokAuthStore.authPath: #"{"https://auth.x.ai::client":{"key":"token","refresh_token":"refresh","expires_at":"2026-07-01T00:00:00.000Z"}}"#
+        ])
+        let httpClient = RecordingHTTPClient { request in
+            if request.url == GrokUsageClient.billingURL {
+                return HTTPResponse(statusCode: 200, headers: [:], body: billingBody(used: 2500, monthlyLimit: 10000, onDemandCap: 0))
+            }
+            if request.url == GrokUsageClient.settingsURL {
+                return HTTPResponse(statusCode: 200, headers: [:], body: Data(#"{"subscription_tier_display":"SuperGrok Heavy"}"#.utf8))
+            }
+            return HTTPResponse(statusCode: 404, headers: [:], body: Data())
+        }
+        let provider = GrokProvider(
+            authStore: GrokAuthStore(files: files, now: { now }),
+            usageClient: GrokUsageClient(httpClient: httpClient),
+            logUsageScanner: noLogScanner(),
+            now: { now }
+        )
+
+        let snapshot = await provider.refresh()
+        XCTAssertNil(snapshot.lines.first(where: { $0.label == "Usage Trend" }), "no log means no trend chart")
+    }
+
     private func noLogScanner() -> GrokLogUsageScanner {
         GrokLogUsageScanner(files: FakeFiles(), environment: FakeEnvironment(), homeDirectory: { URL(fileURLWithPath: "/home/none") })
     }

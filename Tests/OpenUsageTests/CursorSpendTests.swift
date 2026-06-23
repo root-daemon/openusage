@@ -135,6 +135,36 @@ final class CursorSpendRangeTests: XCTestCase {
         XCTAssertEqual(values(lines, "Last 30 Days"), zero)
     }
 
+    func testAppendSpendLinesAlsoAppendsUsageTrend() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let cal = Calendar.current
+        let rows = [
+            makeRow(date: now, cost: 1.00, tokens: 100),                                           // today
+            makeRow(date: cal.date(byAdding: .day, value: -1, to: now)!, cost: 2.00, tokens: 200)  // yesterday
+        ]
+
+        var lines: [MetricLine] = []
+        CursorUsageMapper.appendSpendLines(rows: rows, now: now, to: &lines)
+
+        guard case .chart(let label, let points, let note) = lines.first(where: { $0.label == "Usage Trend" }) else {
+            return XCTFail("expected a Usage Trend chart line")
+        }
+        XCTAssertEqual(label, "Usage Trend")
+        // Cursor's tokens come from the server-priced CSV, so the note names that source, not local logs.
+        XCTAssertEqual(note, "From your Cursor usage history")
+        XCTAssertEqual(points.count, 31, "one bar per calendar day across the 31-day window")
+        XCTAssertEqual(points.last?.value, 100, "today's tokens land on the last bar")
+        XCTAssertEqual(points[29].value, 200, "yesterday's tokens land on the second-to-last bar")
+    }
+
+    func testNoRowsLeavesNoUsageTrend() {
+        // A fetched-but-empty export is a real zero for the spend tiles, but the trend has nothing to
+        // draw, so no chart line is appended (the row falls back to "No data").
+        var lines: [MetricLine] = []
+        CursorUsageMapper.appendSpendLines(rows: [], now: Date(), to: &lines)
+        XCTAssertNil(lines.first(where: { $0.label == "Usage Trend" }))
+    }
+
     private func makeRow(date: Date, cost: Double, tokens: Int) -> CursorUsageCSVRow {
         CursorUsageCSVRow(
             date: date,

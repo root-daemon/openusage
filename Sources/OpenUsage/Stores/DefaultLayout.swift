@@ -10,8 +10,8 @@ enum DefaultLayout {
         "claude.session", "claude.weekly", "claude.trend",
         "codex.session", "codex.weekly", "codex.trend",
         "devin.weekly", "devin.daily",
-        "grok.creditsUsed",
-        "cursor.usage", "cursor.auto", "cursor.api"
+        "grok.creditsUsed", "grok.trend",
+        "cursor.usage", "cursor.auto", "cursor.api", "cursor.trend"
     ]
 
     /// Metrics pinned to the menu bar on first launch, so the app shows real numbers out of the box

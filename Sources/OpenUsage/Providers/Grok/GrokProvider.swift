@@ -26,7 +26,7 @@ final class GrokProvider: ProviderRuntime {
             .percent(id: "grok.creditsUsed", provider: provider, title: "Monthly", metricLabel: "Credits used"),
             .badge(id: "grok.payAsYouGo", provider: provider, title: "Extra Usage", metricLabel: "Pay as you go")
             // Local spend tiles, estimated from the Grok CLI log (see GrokLogUsageScanner).
-        ] + WidgetDescriptor.spendTiles(provider: provider)
+        ] + WidgetDescriptor.spendTiles(provider: provider) + [.usageTrend(provider: provider)]
     }
 
     func refresh() async -> ProviderSnapshot {
@@ -69,6 +69,8 @@ final class GrokProvider: ProviderRuntime {
         // `scan` is awaited so its whole-file read + parse runs off the main actor.
         if let tokenUsage = await logUsageScanner.scan(daysBack: 30, now: now()) {
             SpendTileMapper.appendTokenUsage(tokenUsage, to: &mapped.lines, now: now())
+            SpendTileMapper.appendUsageTrend(tokenUsage, to: &mapped.lines, now: now(),
+                                             note: "Estimated from local logs at API rates")
         }
 
         return ProviderSnapshot.make(provider: provider, plan: plan, lines: mapped.lines, refreshedAt: now())

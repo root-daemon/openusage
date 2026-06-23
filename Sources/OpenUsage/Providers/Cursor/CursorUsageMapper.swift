@@ -226,7 +226,12 @@ enum CursorUsageMapper {
                 costUSD: Double(CursorPricing.toCents(costByDay[day] ?? 0)) / 100
             )
         }
-        SpendTileMapper.appendTokenUsage(DailyUsageSeries(daily: daily), to: &lines, now: now, estimated: false)
+        let series = DailyUsageSeries(daily: daily)
+        SpendTileMapper.appendTokenUsage(series, to: &lines, now: now, estimated: false)
+        // Cursor's tokens come from the server-priced usage CSV, not a local CLI log, so the trend
+        // note names that source rather than the "estimated from local logs" line the ccusage/Grok
+        // providers use. Tokens are measured either way, so there's no ⓘ.
+        SpendTileMapper.appendUsageTrend(series, to: &lines, now: now, note: "From your Cursor usage history")
     }
 
     private static func dayKey(from date: Date, calendar: Calendar) -> String {

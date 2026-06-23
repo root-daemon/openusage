@@ -27,7 +27,7 @@ final class CursorProvider: ProviderRuntime {
             .percent(id: "cursor.auto", provider: provider, title: "Auto Limits", metricLabel: "Auto usage"),
             .percent(id: "cursor.api", provider: provider, title: "API Usage", metricLabel: "API usage"),
             .boundedDollars(id: "cursor.onDemand", provider: provider, title: "Extra Usage", metricLabel: "On-demand", limit: 100)
-        ] + WidgetDescriptor.spendTiles(provider: provider)
+        ] + WidgetDescriptor.spendTiles(provider: provider) + [.usageTrend(provider: provider)]
     }
 
     func refresh() async -> ProviderSnapshot {
