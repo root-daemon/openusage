@@ -22,8 +22,8 @@ Rows with a reset date tick every 30 seconds, so countdowns and pace stay live b
 
 ## Right-click menus
 
-Every row: **Pin to menu bar / Unpin · Hide · Show what's used/left · Show exact reset times/reset countdowns · Refresh \<provider\> · Customize…**
-Provider headers: **Refresh \<provider\> · Customize…**
+Every row: **Hide · Pin to menu bar / Unpin · Refresh \<provider\> · Customize…**
+Provider headers: **Hide \<provider\> · Refresh \<provider\> · Customize…** (Hide turns the whole provider off; turn it back on under Settings ▸ Providers.)
 
 ## Customize
 

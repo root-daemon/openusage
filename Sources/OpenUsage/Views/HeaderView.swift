@@ -1,16 +1,19 @@
 import AppKit
 import SwiftUI
 
-/// The footer's lone round glass control plus the "More" pull-down behind it. On the dashboard the
-/// button pops the pull-down (Customize / Settings / Check for Updates / About / Quit); on the Customize
-/// or Settings screen it morphs into the prominent checkmark "Done" that returns to the dashboard, so
-/// each screen keeps a visible exit (Esc/⏎ also back out). Settings folded from its own gear button into
-/// the menu, so a hidden ⌘, button preserves that system shortcut from anywhere in the popover.
+/// The footer's lone glass control: a "More" pull-down button (Customize / Settings / Check for Updates /
+/// About / Quit). On the dashboard it shows; the Customize and Settings screens carry their own
+/// top-leading back button (`DashboardView.navBar`) to return home — the macOS-native place for it — so
+/// the footer control simply drops away there rather than morphing into a trailing "Done".
+///
+/// It's a SwiftUI `Menu` with `.menuStyle(.button)`: the native drop-down-button pattern, which draws the
+/// glass button plus a disclosure chevron and presents the menu itself. The menu renders in its own
+/// `NSMenu`-backed window, which `StatusItemController.shouldKeepPanelOpen` already keeps the popover open
+/// for (same rule that covers the Settings pickers' popups). A hidden ⌘, button preserves the system
+/// Settings shortcut from anywhere in the popover, since a menu's own key equivalents only fire while it's open.
 struct HeaderView: View {
     @Environment(LayoutStore.self) private var layout
     @Environment(UpdaterController.self) private var updater
-    /// Anchors the "More" pull-down under its button. `@State` keeps one stable instance.
-    @State private var moreMenuAnchor = PopUpMenuAnchor()
 
     var body: some View {
         leadingControl
@@ -19,23 +22,59 @@ struct HeaderView: View {
             .background(settingsShortcut)
     }
 
-    /// On the dashboard this is the "More" button, opening the pull-down whose "Customize" and "Settings"
-    /// items are the ways into those screens. The Customize and Settings screens carry their own
-    /// top-leading back button (`DashboardView.navBar`) to return home — the macOS-native place for it —
-    /// so the footer control simply drops away there rather than morphing into a trailing "Done".
+    /// On the dashboard this is the "More" pull-down. `.menuStyle(.button)` presents it as a button control
+    /// with a disclosure chevron — the standard macOS drop-down button — while `.glassButtonStyle()` keeps it
+    /// on the footer's Liquid Glass (bordered on macOS 15).
     @ViewBuilder
     private var leadingControl: some View {
         if layout.screen == .dashboard {
-            roundButton("More", systemImage: "ellipsis", prominent: false) {
-                presentMoreMenu()
+            Menu {
+                moreMenuItems
+            } label: {
+                // Icon-only "More" affordance; `.menuStyle(.button)` adds the drop-down chevron beside it.
+                // The `Label` title still carries the accessible name for VoiceOver.
+                Label("More", systemImage: "ellipsis")
+                    .labelStyle(.iconOnly)
             }
-            // The anchor view fills the button's frame so the menu drops from directly under it.
-            .background(PopUpMenuAnchorView(anchor: moreMenuAnchor))
+            .menuStyle(.button)
+            .glassButtonStyle()
+            .buttonBorderShape(.capsule)
+            // The footer's only control: a larger size costs nothing and gives a bigger target.
+            .controlSize(.large)
         }
     }
 
+    /// The "More" menu items, mirroring their in-popover entry points. `autoenablesItems` has no SwiftUI
+    /// equivalent, so the Check for Updates item disables itself when Sparkle can't currently check — e.g.
+    /// dev builds with no feed, or while a check is already in flight. Settings (⌘,) and Customize (⏎) are
+    /// reachable by their global shortcuts (the hidden button below and `PopoverKeyReader`), so they don't
+    /// repeat a key equivalent here that would double-register.
+    @ViewBuilder
+    private var moreMenuItems: some View {
+        Button { toggle(.settings) } label: {
+            Label("Settings", systemImage: "gearshape")
+        }
+        Button { toggle(.customize) } label: {
+            Label("Customize", systemImage: "slider.horizontal.3")
+        }
+        Button { updater.checkForUpdates() } label: {
+            Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")
+        }
+        .disabled(!updater.canCheckForUpdates)
+
+        Divider()
+
+        Button { AboutPanel.present() } label: {
+            Label("About OpenUsage", systemImage: "info.circle")
+        }
+        Button(role: .destructive) { NSApplication.shared.terminate(nil) } label: {
+            Label("Quit OpenUsage", systemImage: "power")
+        }
+        .keyboardShortcut("q") // ⌘Q — unowned elsewhere, so safe to register on the item.
+    }
+
     /// Keeps the system ⌘, Settings shortcut working from anywhere in the popover. The menu's Settings
-    /// item shows ⌘, too, but a menu key equivalent only fires while that menu is open — this hidden,
+    /// item can't carry it (a menu key equivalent only fires while that menu is open), so this hidden,
     /// zero-size button carries the shortcut the rest of the time. It never draws.
     private var settingsShortcut: some View {
         Button("") { toggle(.settings) }
@@ -45,71 +84,9 @@ struct HeaderView: View {
             .accessibilityHidden(true)
     }
 
-    /// Builds and pops the "More" pull-down as a native `NSMenu`, so the trigger stays the exact glass
-    /// `roundButton` (a SwiftUI `Menu` styled as a button does not match it). Items mirror their
-    /// in-popover shortcuts: Settings ⌘,, Customize ⏎, Quit ⌘Q. `autoenablesItems = false` lets the
-    /// Check for Updates item stay greyed when Sparkle can't currently check — e.g. dev builds with no
-    /// feed, or while a check is already in flight.
-    private func presentMoreMenu() {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-
-        menu.addItem(ClosureMenuItem(title: "Settings", systemSymbol: "gearshape", keyEquivalent: ",") {
-            toggle(.settings)
-        })
-
-        let customize = ClosureMenuItem(title: "Customize", systemSymbol: "slider.horizontal.3", keyEquivalent: "\r") {
-            toggle(.customize)
-        }
-        // The bare Return that `PopoverKeyReader` already routes to Customize. Clearing the mask keeps it
-        // showing as ⏎ rather than the ⌘⏎ that NSMenuItem renders by default.
-        customize.keyEquivalentModifierMask = []
-        menu.addItem(customize)
-
-        let checkForUpdates = ClosureMenuItem(title: "Check for Updates…", systemSymbol: "arrow.triangle.2.circlepath") {
-            updater.checkForUpdates()
-        }
-        checkForUpdates.isEnabled = updater.canCheckForUpdates
-        menu.addItem(checkForUpdates)
-
-        menu.addItem(.separator())
-        menu.addItem(ClosureMenuItem(title: "About OpenUsage", systemSymbol: "info.circle") {
-            AboutPanel.present()
-        })
-        menu.addItem(ClosureMenuItem(title: "Quit OpenUsage", systemSymbol: "power", keyEquivalent: "q") {
-            NSApplication.shared.terminate(nil)
-        })
-        moreMenuAnchor.present(menu)
-    }
-
     private func toggle(_ screen: PopoverScreen) {
         withAnimation(Motion.modeSwitch) {
             layout.screen = layout.screen == screen ? .dashboard : screen
         }
-    }
-
-    /// A system Liquid Glass icon button (Tahoe) at the large control size — no custom icon
-    /// font or shrunken control. On macOS 15 it falls back to a bordered button (no glass).
-    /// `buttonBorderShape(.circle)` keeps the circular shape while preserving
-    /// the glass highlight/shadow that `clipShape` would crop. Prominent = accent-filled glass for an
-    /// active toggle state. The icon-only `Label` keeps the title for accessibility; the equal frame
-    /// keeps the circle a consistent diameter regardless of glyph width.
-    private func roundButton(
-        _ title: String,
-        systemImage: String,
-        prominent: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        let label = Label(title, systemImage: systemImage)
-            .labelStyle(.iconOnly)
-            .frame(width: 16, height: 16)
-
-        return Button(action: action) { label }
-            .glassButtonStyle(prominent: prominent)
-            .buttonBorderShape(.circle)
-            // The footer's only button: a larger control costs nothing and gives a bigger target.
-            // No hover tooltip — the ellipsis reads as a standard "More" affordance on its own; the
-            // `Label` title still carries the accessible name for VoiceOver.
-            .controlSize(.large)
     }
 }

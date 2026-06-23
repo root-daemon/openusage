@@ -10,6 +10,7 @@ import SwiftUI
 /// obvious place to do the same plus toggle metrics on/off. Both surfaces use the same local gesture/geometry
 /// helper so they work inside the menu-bar popover without a system drag/drop session.
 struct WidgetGroupedListView: View {
+    @Environment(AppContainer.self) private var container
     @Environment(LayoutStore.self) private var layout
     @Environment(WidgetDataStore.self) private var dataStore
     let reorderSpaceName: String
@@ -56,6 +57,12 @@ struct WidgetGroupedListView: View {
         .padding(.horizontal, 8)
         .highPriorityGesture(providerDragGesture(for: group))
         .contextMenu {
+            // Hides the whole provider section (Settings ▸ Providers brings it back). Mirrors the per-metric
+            // "Hide" but one level up, so the verb order reads the same on a header as on a row.
+            Button("Hide \(group.provider.displayName)") {
+                container.enablement.setEnabled(false, for: group.provider.id)
+            }
+            Divider()
             Button("Refresh \(group.provider.displayName)") {
                 Task { await dataStore.refresh(providerID: group.provider.id, force: true) }
             }
@@ -120,11 +127,14 @@ struct WidgetGroupedListView: View {
             .reorderFrame(id: descriptor.id, in: .named(reorderSpaceName))
     }
 
-    /// Desktop-native management for everything that is otherwise hover-or-hidden: pinning, hiding,
-    /// the global reset-format flip, and a per-provider refresh — without a trip into Customize.
+    /// Desktop-native management for a single metric: hide it, pin/unpin it, refresh its provider, or jump
+    /// into Customize — without a trip through Customize first. Hide leads (the most-reached-for verb), then
+    /// pin, then a divider before the two provider-/app-level actions.
     @ViewBuilder
     private func rowMenu(_ descriptor: WidgetDescriptor, providerID: String) -> some View {
-        let data = dataStore.data(for: descriptor)
+        Button("Hide") {
+            layout.setMetricEnabled(descriptor.id, false)
+        }
         if descriptor.pinnable {
             Button(layout.isPinned(descriptor.id) ? "Unpin" : "Pin to menu bar") {
                 if layout.isPinned(descriptor.id) {
@@ -136,28 +146,14 @@ struct WidgetGroupedListView: View {
                 }
             }
         }
-        Button("Hide") {
-            layout.setMetricEnabled(descriptor.id, false)
-        }
-        if data.hasMeterStyleToggle {
-            Button(dataStore.meterStyle == .remaining
-                   ? "Show what's used"
-                   : "Show what's left") {
-                dataStore.meterStyle.toggle()
-            }
-        }
-        if data.hasResetLabel {
-            Button(dataStore.resetDisplayMode == .relative
-                   ? "Show exact reset times"
-                   : "Show reset countdowns") {
-                dataStore.resetDisplayMode.toggle()
-            }
-        }
         Divider()
         if let provider = layout.provider(id: providerID) {
             Button("Refresh \(provider.displayName)") {
                 Task { await dataStore.refresh(providerID: providerID, force: true) }
             }
+        }
+        Button("Customize…") {
+            withAnimation(Motion.modeSwitch) { layout.isEditing = true }
         }
     }
 
