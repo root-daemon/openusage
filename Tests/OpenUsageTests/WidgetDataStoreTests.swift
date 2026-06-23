@@ -311,6 +311,15 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertEqual(combinedData.unboundedTooltip, "$478.00 · 891,000 tokens")
         XCTAssertEqual(combinedData.infoNote, WidgetData.ccusageEstimateNote)
 
+        // The label ⓘ carries the estimate disclaimer (regression: #683), while the value on the right
+        // keeps the full figures — the two tooltips must not be the same string.
+        XCTAssertEqual(combinedData.unboundedLabelTooltip, WidgetData.ccusageEstimateNote)
+        XCTAssertEqual(combinedData.unboundedValueTooltip, "$478.00 · 891,000 tokens")
+        XCTAssertEqual(costData.unboundedLabelTooltip, WidgetData.ccusageEstimateNote)
+        // The measured tokens tile has no estimate, so its label ⓘ falls back to the figures hover.
+        XCTAssertNil(tokenData.infoNote)
+        XCTAssertEqual(tokenData.unboundedLabelTooltip, "891,000 tokens")
+
         // An unpriced day (real tokens, no dollar): the cost-only tile finds no dollar value, so it reads
         // "No data" rather than a fabricated $0.00.
         let todayData = store.data(for: todayCost)

@@ -338,6 +338,31 @@ struct WidgetData: Hashable {
         return selected.map { MetricFormatter.string(for: $0, style: .full) }.joined(separator: " · ")
     }
 
+    /// Hover text for an unbounded row's **value** (and the expiry-warning icon): the per-credit expiry
+    /// breakdown on a reset-credit row, else the exact figures the compact value shortens, else a "no
+    /// usage" note on a zero spend period (so an empty "$0.00 · 0 tokens" row still reveals something).
+    /// `nil` for a small, already-full, non-zero row, which has nothing to add. This is deliberately the
+    /// figures/expiry hover — `infoNote` (the estimate disclaimer) never displaces it on the value.
+    var unboundedValueTooltip: String? {
+        // The reset-credit row's per-credit expiry breakdown takes precedence (it's the whole point of
+        // the ⓘ on "2 available"); its tiny count never has a figures tooltip anyway.
+        if let expiry = expiryTooltip { return expiry }
+        if let figures = unboundedTooltip { return figures }
+        // The "no usage" note only fits a spend period (Today / Yesterday / Last 30 Days), where a zero
+        // genuinely means nothing was used. A balance row that reads 0 (Codex Rate Limit Resets, an
+        // exhausted Extra Usage credit) is depleted, not idle, so it gets no note and no ⓘ.
+        return isZeroUsage && isUsagePeriod ? "No usage in this period" : nil
+    }
+
+    /// Hover text for an unbounded row's **label ⓘ**: the estimate disclaimer (`infoNote`) takes
+    /// precedence for locally-imputed spend rows ("Estimated locally, so it may be off."), falling back
+    /// to the figures/expiry hover so reset-credit rows still surface their per-credit expiry list and
+    /// non-estimated rows keep their figures. Separated from `unboundedValueTooltip` so the value on the
+    /// right always reveals the full numbers regardless of what the label ⓘ explains.
+    var unboundedLabelTooltip: String? {
+        infoNote ?? unboundedValueTooltip
+    }
+
     /// True for a zero-usage period — has data, but every selected value is zero (a row reading
     /// "$0.00 · 0 tokens"). Distinct from "no data" and from small non-zero usage, so the row can show
     /// a "no usage" note rather than a figures reveal.

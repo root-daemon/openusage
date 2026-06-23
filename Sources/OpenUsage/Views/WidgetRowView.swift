@@ -256,7 +256,7 @@ struct WidgetRowView: View {
                         // per-element pattern the bounded row uses for "x left" and "Resets in …". Reveals
                         // the exact figures the compact value shortens, or "No usage in this period" on a
                         // zero row; nil (no tooltip) on a small, already-full, non-zero row.
-                        .hoverTooltip(unboundedHoverText)
+                        .hoverTooltip(data.unboundedValueTooltip)
                 }
                 if let subtitle = data.unboundedSubtitle {
                     // Secondary, not tertiary: the subtitle is informational ("on-device estimate"),
@@ -280,7 +280,7 @@ struct WidgetRowView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: density.supportingPointSize - 1))
                 .foregroundStyle(severityColor(.warning))
-                .hoverTooltip(unboundedHoverText)
+                .hoverTooltip(data.unboundedValueTooltip)
                 .accessibilityLabel("A reset credit is expiring soon")
         }
     }
@@ -309,23 +309,10 @@ struct WidgetRowView: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-            infoIcon(unboundedHoverText)
+            // The label ⓘ explains the row (the estimate disclaimer for locally-imputed spend), while the
+            // value on the right keeps the full-figures/expiry hover — see `unboundedLabelTooltip`.
+            infoIcon(data.unboundedLabelTooltip)
         }
-    }
-
-    /// The hover text for an unbounded row, shared by the row itself and its ⓘ: the exact figures when
-    /// there's usage to reveal, or a "no usage" note on a zero spend period so an empty row
-    /// ("$0.00 · 0 tokens") still pops something (and carries an ⓘ). `nil` for a small, already-full,
-    /// non-zero row, which has nothing to add.
-    private var unboundedHoverText: String? {
-        // The reset-credit row's per-credit expiry breakdown takes precedence (it's the whole point of
-        // the ⓘ on "2 available"); its tiny count never has a figures tooltip anyway.
-        if let expiry = data.expiryTooltip { return expiry }
-        if let figures = data.unboundedTooltip { return figures }
-        // The "no usage" note only fits a spend period (Today / Yesterday / Last 30 Days), where a zero
-        // genuinely means nothing was used. A balance row that reads 0 (Codex Rate Limit Resets, an
-        // exhausted Extra Usage credit) is depleted, not idle, so it gets no note and no ⓘ.
-        return data.isZeroUsage && data.isUsagePeriod ? "No usage in this period" : nil
     }
 
     /// Full-width capsule meter — the Tahoe-era level-indicator form (capsule, full-height
