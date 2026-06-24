@@ -466,13 +466,15 @@ final class LayoutStore {
         let providerExpanded = Set(expanded)
         let providerIDs = Set(validIDs)
         let nextExpanded = expandedMetricIDs.subtracting(providerIDs).union(providerExpanded)
-        defaultExpandedOnEnableIDs.subtract(providerIDs)
-        guard metricOrderByProvider[providerID] != nextOrder || expandedMetricIDs != nextExpanded else {
+        let nextDefaultExpandedOnEnableIDs = defaultExpandedOnEnableIDs.subtracting(seen)
+        let fallbackChanged = defaultExpandedOnEnableIDs != nextDefaultExpandedOnEnableIDs
+        guard metricOrderByProvider[providerID] != nextOrder || expandedMetricIDs != nextExpanded || fallbackChanged else {
             return false
         }
 
         metricOrderByProvider[providerID] = nextOrder
         expandedMetricIDs = nextExpanded
+        defaultExpandedOnEnableIDs = nextDefaultExpandedOnEnableIDs
         persistMetricOrder()
         persistExpanded()
         syncPlacedOrder()

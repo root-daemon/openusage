@@ -159,6 +159,43 @@ final class LayoutStoreTests: XCTestCase {
 
         XCTAssertTrue(store.isMetricEnabled("cursor.requests"))
         XCTAssertFalse(store.isMetricExpanded("cursor.requests"))
+
+        let reloaded = LayoutStore(
+            registry: .mock,
+            defaults: defaults,
+            storageKey: "layout",
+            defaultMetricIDs: ["cursor.usage"],
+            migrationBaselineMetricIDs: ["cursor.usage"],
+            defaultExpandedMetricIDs: ["cursor.requests"]
+        )
+        reloaded.setMetricEnabled("cursor.requests", true)
+        XCTAssertFalse(reloaded.isMetricExpanded("cursor.requests"))
+    }
+
+    func testPrimaryDividerReorderDoesNotConsumeHiddenDefaultExpandedOnEnable() {
+        let defaults = makeDefaults("LegacyPrimaryReorderKeepsFallback")
+        saveStored([
+            PlacedWidget(descriptorID: "cursor.usage"),
+            PlacedWidget(descriptorID: "cursor.today")
+        ], forKey: "layout", in: defaults)
+        let store = LayoutStore(
+            registry: .mock,
+            defaults: defaults,
+            storageKey: "layout",
+            defaultMetricIDs: ["cursor.usage", "cursor.today"],
+            migrationBaselineMetricIDs: ["cursor.usage", "cursor.today"],
+            defaultExpandedMetricIDs: ["cursor.requests"]
+        )
+        let divider = "cursor::expanded-divider"
+
+        XCTAssertTrue(store.applyMetricDividerOrder([
+            "cursor.today",
+            "cursor.usage",
+            divider
+        ], dividerID: divider, in: "cursor"))
+        store.setMetricEnabled("cursor.requests", true)
+
+        XCTAssertTrue(store.isMetricExpanded("cursor.requests"))
     }
 
     func testAddAndResetCancelDragState() {
