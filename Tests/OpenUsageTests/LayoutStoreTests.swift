@@ -452,24 +452,28 @@ final class LayoutStoreTests: XCTestCase {
         XCTAssertFalse(store.isMetricExpanded("cursor.requests"))
     }
 
-    func testMetricOrderWithDividerIncludesDisabledMetrics() {
+    func testApplyingVisibleDividerOrderKeepsDisabledMetricsInPlace() {
         let store = LayoutStore(
             registry: .mock,
-            defaults: makeDefaults("DividerIncludesDisabled"),
+            defaults: makeDefaults("VisibleDividerKeepsDisabled"),
             storageKey: "layout",
             defaultMetricIDs: ["cursor.usage", "cursor.today"],
             defaultExpandedMetricIDs: ["cursor.requests", "cursor.today"]
         )
         let divider = "cursor::expanded-divider"
 
+        XCTAssertFalse(store.isMetricEnabled("cursor.credits"))
         XCTAssertFalse(store.isMetricEnabled("cursor.requests"))
-        XCTAssertEqual(store.metricOrderWithDivider(for: "cursor", dividerID: divider), [
+        XCTAssertTrue(store.applyMetricDividerOrder([
             "cursor.usage",
-            "cursor.credits",
-            divider,
-            "cursor.requests",
-            "cursor.today"
+            "cursor.today",
+            divider
+        ], dividerID: divider, in: "cursor"))
+        XCTAssertEqual(store.orderedSupportedMetrics(for: "cursor").map(\.id), [
+            "cursor.usage", "cursor.credits", "cursor.today", "cursor.requests"
         ])
+        XCTAssertFalse(store.isMetricExpanded("cursor.today"))
+        XCTAssertTrue(store.isMetricExpanded("cursor.requests"))
     }
 
     func testDisabledMetricKeepsExpandedMembership() {

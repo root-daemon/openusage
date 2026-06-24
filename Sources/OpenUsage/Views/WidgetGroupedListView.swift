@@ -280,7 +280,8 @@ struct WidgetGroupedListView: View {
         }
         let alwaysShown = group.alwaysShownWidgets.compactMap { layout.descriptor(for: $0)?.id }
         guard group.hasExpandedMetrics, layout.isProviderExpanded(providerID) else { return alwaysShown }
-        return layout.metricOrderWithDivider(for: providerID, dividerID: expandedDividerID(for: providerID))
+        let expanded = group.expandedWidgets.compactMap { layout.descriptor(for: $0)?.id }
+        return alwaysShown + [expandedDividerID(for: providerID)] + expanded
     }
 
     private func makeProviderLift(for group: ProviderGroup, value: DragGesture.Value) -> ReorderLift? {

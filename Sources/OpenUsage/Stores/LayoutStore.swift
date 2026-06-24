@@ -416,7 +416,7 @@ final class LayoutStore {
     /// remains metric-only.
     @discardableResult
     func applyMetricDividerOrder(_ orderedIDsWithDivider: [String], dividerID: String, in providerID: String) -> Bool {
-        let validIDs = registry.descriptors(for: providerID).map(\.id)
+        let validIDs = metricOrder(for: providerID)
         let validSet = Set(validIDs)
         guard orderedIDsWithDivider.contains(dividerID) else { return false }
 
@@ -438,10 +438,14 @@ final class LayoutStore {
             }
         }
 
-        // Preserve any newly-registered metrics that were not in the rendered target list.
-        let missing = validIDs.filter { !seen.contains($0) }
-        alwaysShown.append(contentsOf: missing.filter { !expandedMetricIDs.contains($0) })
-        expanded.append(contentsOf: missing.filter { expandedMetricIDs.contains($0) })
+        // Dashboard rows only render enabled metrics. Merge disabled rows back into their previous
+        // sections so a dashboard drag does not push hidden Customize rows to the end.
+        let desiredAlwaysShown = Set(alwaysShown)
+        let desiredExpanded = Set(expanded)
+        let previousAlwaysShown = validIDs.filter { !expandedMetricIDs.contains($0) && !desiredExpanded.contains($0) }
+        let previousExpanded = validIDs.filter { expandedMetricIDs.contains($0) && !desiredAlwaysShown.contains($0) }
+        alwaysShown = Self.mergingMissingMetrics(into: alwaysShown, previous: previousAlwaysShown)
+        expanded = Self.mergingMissingMetrics(into: expanded, previous: previousExpanded)
 
         let nextOrder = alwaysShown + expanded
         let providerExpanded = Set(expanded)
@@ -457,6 +461,42 @@ final class LayoutStore {
         persistExpanded()
         syncPlacedOrder()
         return true
+    }
+
+    private static func mergingMissingMetrics(into ordered: [String], previous: [String]) -> [String] {
+        let orderedSet = Set(ordered)
+        var result: [String] = []
+        var emitted = Set<String>()
+        var orderedIndex = ordered.startIndex
+
+        func emitDesiredRows(through id: String) {
+            while orderedIndex < ordered.endIndex {
+                let next = ordered[orderedIndex]
+                orderedIndex = ordered.index(after: orderedIndex)
+                if emitted.insert(next).inserted {
+                    result.append(next)
+                }
+                if next == id { break }
+            }
+        }
+
+        for id in previous {
+            if orderedSet.contains(id) {
+                emitDesiredRows(through: id)
+            } else if emitted.insert(id).inserted {
+                result.append(id)
+            }
+        }
+
+        while orderedIndex < ordered.endIndex {
+            let next = ordered[orderedIndex]
+            orderedIndex = ordered.index(after: orderedIndex)
+            if emitted.insert(next).inserted {
+                result.append(next)
+            }
+        }
+
+        return result
     }
 
     /// Pure reorder: remove `dragged`, reinsert it adjacent to `target` (after it when moving down, before
