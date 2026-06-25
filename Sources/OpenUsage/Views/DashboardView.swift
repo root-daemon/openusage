@@ -150,28 +150,39 @@ struct DashboardView: View {
                 Task { @MainActor in
                     // Co-animate the slide and the height on ONE spring → the coordinated morph: the
                     // panel grows/shrinks to the destination's size as that screen slides in. The
-                    // destination is mounted (and measured) on the render that set slideProgress=0, so
-                    // its ideal is fresh here; the completion re-syncs in case it wasn't.
-                    didEstablishHeight = true
+                    // destination is usually mounted+measured by now (it mounted on the slideProgress=0
+                    // render), so we morph to its ideal. If it ISN'T measured yet and the height was
+                    // never established (animatedHeight still the 0 sentinel — e.g. opening Settings
+                    // straight from the status-item menu), we must NOT morph to clampedTarget(0), which
+                    // floors to minPanelHeight and wrongly shrinks the panel: leave the height alone and
+                    // let the completion / measurement establish it once a real ideal lands.
+                    let coTarget: CGFloat? = measuredIdeal[destination].map { clampedTarget($0) }
+                        ?? (animatedHeight > 0 ? animatedHeight : nil)
+                    if coTarget != nil { didEstablishHeight = true }
                     withAnimation(Motion.spring, completionCriteria: .logicallyComplete) {
                         slideProgress = 1
-                        animatedHeight = clampedTarget(measuredIdeal[destination] ?? animatedHeight)
+                        if let coTarget { animatedHeight = coTarget }
                     } completion: {
-                        if let target = targetHeight(), abs(target - animatedHeight) > 1 {
+                        guard let target = targetHeight() else { return }
+                        if !didEstablishHeight {
+                            didEstablishHeight = true
+                            animatedHeight = target            // un-animated establish — never grow from 0
+                        } else if abs(target - animatedHeight) > 1 {
                             withAnimation(Motion.spring) { animatedHeight = target }
                         }
                     }
                 }
             }
             // In-screen growth/shrink (a provider card expands, the footer notice appears, a refresh
-            // loads rows): re-target the height on the same spring. The switch path owns the height
-            // while a slide is in flight, so defer to it then.
+            // loads rows): re-target the height on the same spring. Establishment is allowed even mid-
+            // slide (a measurement that lands during a switch must seed the height — there's nothing to
+            // fight yet); the animated *re-target* defers to the switch path while a slide is in flight.
             .onChange(of: measuredIdeal[layout.screen]) { _, _ in
-                guard !isSliding, let target = targetHeight() else { return }
+                guard let target = targetHeight() else { return }
                 if !didEstablishHeight {
                     didEstablishHeight = true
                     animatedHeight = target
-                } else if abs(target - animatedHeight) > 1 {
+                } else if !isSliding, abs(target - animatedHeight) > 1 {
                     withAnimation(Motion.spring) { animatedHeight = target }
                 }
             }
