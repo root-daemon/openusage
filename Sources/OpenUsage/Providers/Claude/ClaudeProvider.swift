@@ -36,7 +36,7 @@ final class ClaudeProvider: ProviderRuntime {
             .filter { $0.oauth.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }
         guard !candidates.isEmpty else {
             AppLog.info(LogTag.auth("claude"), "no access token, not logged in")
-            return ProviderSnapshot.error(provider: provider, message: ClaudeAuthError.notLoggedIn.localizedDescription)
+            return ProviderSnapshot.error(provider: provider, error: ClaudeAuthError.notLoggedIn)
         }
 
         AppLog.info(LogTag.plugin("claude"), "refresh start (\(candidates.count) credential source\(candidates.count == 1 ? "" : "s"))")
@@ -56,12 +56,12 @@ final class ClaudeProvider: ProviderRuntime {
                 lastFallbackError = error
                 continue
             } catch {
-                return ProviderSnapshot.error(provider: provider, message: error.localizedDescription)
+                return ProviderSnapshot.error(provider: provider, error: error)
             }
         }
         return ProviderSnapshot.error(
             provider: provider,
-            message: (lastFallbackError ?? ClaudeAuthError.notLoggedIn).localizedDescription
+            error: lastFallbackError ?? ClaudeAuthError.notLoggedIn
         )
     }
 

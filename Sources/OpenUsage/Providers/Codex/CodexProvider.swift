@@ -42,7 +42,7 @@ final class CodexProvider: ProviderRuntime {
                 lastFallbackError = error
                 continue
             } catch {
-                return ProviderSnapshot.error(provider: provider, message: error.localizedDescription)
+                return ProviderSnapshot.error(provider: provider, error: error)
             }
         }
 
@@ -50,14 +50,14 @@ final class CodexProvider: ProviderRuntime {
             do {
                 return try await probe(authState: keychainCandidate)
             } catch {
-                return ProviderSnapshot.error(provider: provider, message: error.localizedDescription)
+                return ProviderSnapshot.error(provider: provider, error: error)
             }
         }
 
         if let lastFallbackError {
-            return ProviderSnapshot.error(provider: provider, message: lastFallbackError.localizedDescription)
+            return ProviderSnapshot.error(provider: provider, error: lastFallbackError)
         }
-        return ProviderSnapshot.error(provider: provider, message: CodexAuthError.notLoggedIn.localizedDescription)
+        return ProviderSnapshot.error(provider: provider, error: CodexAuthError.notLoggedIn)
     }
 
     private func probe(authState initialState: CodexAuthState) async throws -> ProviderSnapshot {

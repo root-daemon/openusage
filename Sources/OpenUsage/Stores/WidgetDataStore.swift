@@ -53,6 +53,12 @@ final class WidgetDataStore {
     /// observable UI state, so it's excluded from `@Observable` tracking.
     @ObservationIgnored private var failureRetryAfter: [String: Date] = [:]
 
+    /// Telemetry hook wired by `AppContainer`. Invoked once per *real* provider fetch — `.refreshed` or
+    /// `.failed` only, never the cache-hit/skip/backoff outcomes that the 5-minute timer produces in
+    /// bulk — so the recorder can roll daily usage and error counts up into one event per provider per
+    /// day. `nil` (and so a no-op) in tests and previews. Not observable UI state.
+    @ObservationIgnored var onRefreshOutcome: (@MainActor (String, RefreshOutcome, ErrorCategory?, Bool) -> Void)?
+
     /// Global meter style: whether every bounded tile (and the menu-bar value) renders as "used" or
     /// "left/remaining". Persisted so the choice survives relaunch; defaults to `.remaining`.
     var meterStyle: WidgetDisplayMode {
@@ -176,6 +182,7 @@ final class WidgetDataStore {
             // Negative-cache the failure so a wake burst can't re-probe this provider in a tight loop.
             failureRetryAfter[providerID] = now().addingTimeInterval(Self.failureRetryBackoff)
             AppLog.warn(.refresh, "\(providerID) failed: \(message)")
+            onRefreshOutcome?(providerID, .failed, snapshot.errorCategory, force)
             return .failed
         }
         if providerErrors[providerID] != nil {
@@ -186,6 +193,7 @@ final class WidgetDataStore {
         snapshots[providerID] = snapshot
         cache.store(snapshot)
         AppLog.info(.refresh, "\(providerID) ok (\(durationMs)ms)")
+        onRefreshOutcome?(providerID, .refreshed, nil, force)
         return .refreshed
     }
 

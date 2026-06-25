@@ -58,10 +58,10 @@ final class DevinProvider: ProviderRuntime {
         }
 
         if sawAuthFailure {
-            return ProviderSnapshot.error(provider: provider, message: DevinAuthError.notLoggedIn.localizedDescription)
+            return ProviderSnapshot.error(provider: provider, error: DevinAuthError.notLoggedIn)
         }
         if sawAPIKey {
-            return ProviderSnapshot.error(provider: provider, message: DevinUsageError.quotaUnavailable.localizedDescription)
+            return ProviderSnapshot.error(provider: provider, error: DevinUsageError.quotaUnavailable)
         }
         return ProviderSnapshot.error(provider: provider, message: DevinAuthError.notLoggedIn.localizedDescription)
     }

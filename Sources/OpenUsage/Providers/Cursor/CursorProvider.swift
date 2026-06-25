@@ -33,13 +33,13 @@ final class CursorProvider: ProviderRuntime {
 
     func refresh() async -> ProviderSnapshot {
         guard let state = await loadOffMainActor({ [authStore] in authStore.loadAuthState() }) else {
-            return ProviderSnapshot.error(provider: provider, message: CursorAuthError.notLoggedIn.localizedDescription)
+            return ProviderSnapshot.error(provider: provider, error: CursorAuthError.notLoggedIn)
         }
 
         do {
             return try await probe(authState: state)
         } catch {
-            return ProviderSnapshot.error(provider: provider, message: error.localizedDescription)
+            return ProviderSnapshot.error(provider: provider, error: error)
         }
     }
 

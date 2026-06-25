@@ -12,6 +12,9 @@ final class AppContainer {
     /// Single source of truth for which providers the user has turned off. Both stores consult it (via
     /// injected closures) and the Providers settings tab drives it.
     let enablement: ProviderEnablementStore
+    /// Anonymous, opt-out usage telemetry (daily rollups). Exposed so Settings can toggle it and the
+    /// app-termination hook can flush any queued events.
+    let telemetry: TelemetryRecorder
     /// Read-only usage API on 127.0.0.1:6736 for other local apps (silently off when the port is taken).
     private let localAPI: LocalUsageServer
     // A `let` of a `Sendable` `Task` is implicitly nonisolated, so the nonisolated `deinit` can cancel it.
@@ -47,6 +50,29 @@ final class AppContainer {
         self.enablement = enablement
         self.layout = layout
         self.dataStore = dataStore
+
+        // Anonymous, opt-out usage telemetry (two daily-rollup events). Its state lives in a dedicated
+        // UserDefaults suite so the user's opt-out choice and the install id survive BetaSettingsReset's
+        // standard-domain wipe on every beta bump. The snapshot closure reads the live layout/enablement
+        // so `app_daily_active` always reflects the current configuration.
+        let telemetryStore = TelemetryStore()
+        let telemetry = TelemetryRecorder(
+            sink: PostHogTelemetrySink(enabled: telemetryStore.enabled),
+            store: telemetryStore,
+            snapshot: { [registry, enablement, layout] in
+                TelemetryConfigSnapshot(
+                    enabledProviders: registry.providers.map(\.id).filter { enablement.isEnabled($0) },
+                    enabledMetricIDs: layout.placed.map(\.descriptorID),
+                    pinnedMetricIDs: Array(layout.pinnedMetricIDs),
+                    expandedMetricIDs: Array(layout.expandedMetricIDs),
+                    menuBarStyle: layout.menuBarStyle.rawValue
+                )
+            }
+        )
+        dataStore.onRefreshOutcome = { [weak telemetry] providerID, outcome, category, manual in
+            telemetry?.record(providerID: providerID, outcome: outcome, category: category, manual: manual)
+        }
+        self.telemetry = telemetry
         self.localAPI = LocalUsageServer(state: { [layout, enablement, dataStore] in
             LocalUsageAPI.State(
                 enabledOrderedIDs: layout.providerOrder.filter { enablement.isEnabled($0) },
@@ -54,7 +80,7 @@ final class AppContainer {
                 snapshots: dataStore.snapshots
             )
         })
-        self.refreshTask = Self.startPeriodicRefresh(dataStore: dataStore)
+        self.refreshTask = Self.startPeriodicRefresh(dataStore: dataStore, telemetry: telemetry)
         localAPI.start()
     }
 
@@ -64,10 +90,14 @@ final class AppContainer {
     /// cache, so it only hits the network once a snapshot has actually expired. `@Observable` propagates
     /// the resulting snapshot changes to the menu-bar label and any open widgets, so the UI refreshes on
     /// its own instead of only when the popover opens.
-    private static func startPeriodicRefresh(dataStore: WidgetDataStore) -> Task<Void, Never> {
+    private static func startPeriodicRefresh(dataStore: WidgetDataStore, telemetry: TelemetryRecorder) -> Task<Void, Never> {
         Task {
             while !Task.isCancelled {
                 await dataStore.refreshAll()
+                // Day-rollover beat: emits `app_daily_active` once per local day and flushes any
+                // prior-day provider rollups. Runs on launch and every interval, so always-running
+                // instances still produce a daily-active signal.
+                telemetry.tick()
                 await waitForNextRefresh()
             }
         }

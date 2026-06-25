@@ -30,6 +30,12 @@ Settings lives inside the popover — there is no separate window. Open it from 
 
 One switch per provider. Turning a provider **off** hides it everywhere (dashboard, Customize, menu bar, the collection endpoint of the [local HTTP API](local-http-api.md)) and pauses its updates. Nothing is deleted — turning it back on restores its metrics and order.
 
+## Privacy
+
+| Setting | Options | What it does |
+|---|---|---|
+| Share Anonymous Usage | On / Off | On (default) shares anonymous, daily usage summaries — no account details, credentials, or usage values. Off stops all sharing immediately. See [Privacy & Usage Data](privacy.md) for exactly what is and isn't sent. |
+
 ## Advanced
 
 | Setting | Options | What it does |

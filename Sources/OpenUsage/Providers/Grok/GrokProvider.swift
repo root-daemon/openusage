@@ -34,7 +34,7 @@ final class GrokProvider: ProviderRuntime {
         do {
             return try await loadAndProbe()
         } catch {
-            return ProviderSnapshot.error(provider: provider, message: error.localizedDescription)
+            return ProviderSnapshot.error(provider: provider, error: error)
         }
     }
 
