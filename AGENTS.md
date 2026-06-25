@@ -48,6 +48,15 @@ This Swift edition replaces the original Tauri app. Both editions stay in the sa
 - No new dependencies without justification.
 - Follow the existing per-provider folder structure when adding a provider.
 
+## Adding a Metric
+
+A new metric/widget has four default-placement decisions. These are product calls, not engineering defaults — **confirm each with the user every time before finalizing; never pick them silently.**
+
+- **On or off by default** — enabled on first launch (add the id to `DefaultLayout.metricIDs`) or opt-in only, appearing in the Add Widget gallery (omit it from `metricIDs`).
+- **Primary or secondary by default** — shown above the fold (primary), or tucked behind the provider's expand caret (secondary; add the id to `DefaultLayout.expandedMetricIDs`).
+- **Pinned or not** — seeded onto the menu-bar strip on first launch (`DefaultLayout.pinnedMetricIDs`), and whether it can be pinned at all (`WidgetDescriptor.pinnable`). A widget with no single scalar value (a chart or list) must be `pinnable: false` and excluded from the tray.
+- **Default order** — where it sits among the provider's other metrics. Order is the declaration order in the provider's `widgetDescriptors` array (which seeds both the Customize list and the default layout); there is no separate order list, so place the entry deliberately.
+
 ## Error Handling
 
 Always fail loudly into error logging and show friendly errors to the user. Do not add silent fallbacks that hide real problems. Only validate at system boundaries (user input, external APIs); trust internal code and framework guarantees.
