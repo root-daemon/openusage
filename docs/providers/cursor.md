@@ -26,7 +26,7 @@ Each period is one tile showing cost and tokens together (`$4.08 · 1.2M tokens`
 
 ## The models leaderboard
 
-The optional **Models** widget ranks the models you've used over the last 30 days by spend, from the same usage export the spend tiles use. The row stays compact — the top three model names, numbered by rank — and hovering reveals the full list with each model's spend and token count. Models are grouped by family (a model's faster and reasoning variants count as one). Anything under 5% of your spend is grouped into a single "Other" row; a model Cursor hasn't priced is kept on its own, shown with a dash for cost and a small warning marker. Like the spend tiles, the per-model dollars are imputed from token counts at base rates, so they're an estimate.
+The optional **Models** widget ranks the models you've used over the last 30 days by spend, from the same usage export the spend tiles use. The row stays compact — the top three model names, numbered by rank — and hovering reveals the full list with each model's spend and token count. Models are grouped by family (a model's faster and reasoning variants count as one). Anything under 3% of your spend is grouped into a single "Other" row; a model Cursor hasn't priced is kept on its own, shown with a dash for cost and a small warning marker. Like the spend tiles, the per-model dollars are imputed from token counts at base rates, so they're an estimate.
 
 ## Troubleshooting
 
