@@ -8,22 +8,18 @@ This file documents the engineering conventions for the project. Read it before 
 
 AGENTS.md is the source of truth for agent instructions in this repository. CLAUDE.md files may only point to the nearest AGENTS.md file with `@AGENTS.md`; do not add guidance, duplicate instructions, or project rules to CLAUDE.md.
 
-> **Repository note:** This is the native Swift edition of OpenUsage. Active development happens on the `main` branch.
+> **Repository note:** This is the native Swift edition of OpenUsage. Active development happens on the `main` branch. (NOT the legacy Tauri version which now sits in the `tauri-legacy` branch)
 
-## Rollout: Tauri to Swift (read first)
+## Releases
 
-This Swift edition replaces the original Tauri app. Both editions stay in the same GitHub repo and remain independent.
-- The `main` branch is the active Swift development line; it ships the Swift edition via `.github/workflows/release.yml` (Sparkle appcast on `gh-pages`).
-- The Tauri edition is preserved on `tauri-legacy`. Its final release is `v0.6.28`, which shows the migration banner.
+`main` is the active development line; it ships via `.github/workflows/release.yml` (Sparkle appcast on `gh-pages`). Cut releases with the release-swift skill.
 
 ### Guardrails (do not break)
-- Version lanes: Swift owns `0.7.x` and up; Tauri stays on `0.6.x`. Never use a `0.6.x` number here.
-- Beta Swift releases use `-beta.N` tags and stay GitHub pre-releases on Sparkle's Early Access channel. Stable Swift releases use plain tags, become GitHub "Latest", and must carry forward the final Tauri `latest.json` so older Tauri installs can still update to `v0.6.28`. `release.yml` handles this; verify it with the release-swift skill.
+- Versions are `0.7.x` and up. Never reuse a `0.6.x` number — those are the original edition's released tags, now frozen on the `tauri-legacy` branch (final release `v0.6.28`).
+- **Never increase the version number on your own initiative — always ask for explicit approval first.** The version is a deliberate owner decision: propose the number and wait for explicit sign-off before tagging or cutting a release.
+- Beta releases use `-beta.N` tags and stay GitHub pre-releases on Sparkle's Early Access channel. Stable releases use plain tags and become GitHub "Latest".
+- Stable releases must carry forward the legacy `latest.json` so any remaining `0.6.x` installs can still update to `v0.6.28`. `release.yml` handles this; verify it with the release-swift skill.
 - Never leave a release in Draft, and never ship blank notes: the release-swift skill generates the changelog and verifies the published release after every cut.
-- The Tauri edition is frozen and stays in the repo forever. Do not cut another Tauri release unless there is an emergency.
-
-### Phases
-(1) private Swift testing via Early Access, (2) final Tauri goodbye release `v0.6.28`, (3) make Swift the default `main` branch and preserve old Tauri as `tauri-legacy`, (4) ship Swift stable releases from `main` with plain tags.
 
 ## Architecture
 
@@ -63,7 +59,7 @@ Conventions for the per-provider modules under `Sources/OpenUsage/Providers/<Nam
 
 ## Error Handling
 
-Always fail loudly into error logging and show friendly errors to the user. Do not add silent fallbacks that hide real problems. Only validate at system boundaries (user input, external APIs); trust internal code and framework guarantees.
+Always fail loudly into error logging (log file, PostHog) and show friendly errors to the user. Do not add silent fallbacks that hide real problems. Only validate at system boundaries (user input, external APIs); trust internal code and framework guarantees.
 
 ## UI
 

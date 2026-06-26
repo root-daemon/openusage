@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.7.0-beta.16
+
+### New Features
+- Anonymous opt-out PostHog usage analytics ([#735](https://github.com/robinebers/openusage/pull/735)) by @robinebers
+- Anonymous crash + uncaught-exception reporting ([#739](https://github.com/robinebers/openusage/pull/739)) by @robinebers
+- Add Antigravity provider ([#745](https://github.com/robinebers/openusage/pull/745)) by @robinebers
+
+### Bug Fixes
+- Remove discontinued Sonnet weekly limit ([#744](https://github.com/robinebers/openusage/pull/744)) by @robinebers
+- ccusage: local-time day buckets, no fabricated $0.00 for unreported days ([#746](https://github.com/robinebers/openusage/pull/746)) by @robinebers
+
+---
+
+### Changelog
+**Full Changelog**: [v0.7.0-beta.15...v0.7.0-beta.16](https://github.com/robinebers/openusage/compare/v0.7.0-beta.15...v0.7.0-beta.16)
+
+- [9d732c7](https://github.com/robinebers/openusage/commit/9d732c754e30e2105885214d4aae60c0c51a969d) fix(ccusage): local-time day buckets, no fabricated $0.00 for unreported days (#746) by @robinebers
+- [e5cf2f7](https://github.com/robinebers/openusage/commit/e5cf2f7cc85c2cd278d6ec96d942d626eff33ba7) fix(claude): remove discontinued Sonnet weekly limit (#744) by @robinebers
+- [dc2a80d](https://github.com/robinebers/openusage/commit/dc2a80dcd4bc22a12d2319d69d4b99e0cf4a2967) feat(antigravity): add Antigravity provider (#745) by @robinebers
+- [67e546b](https://github.com/robinebers/openusage/commit/67e546b77063ac40328bed68e6394923038b2a66) feat(telemetry): anonymous crash + uncaught-exception reporting (#739) by @robinebers
+- [c344732](https://github.com/robinebers/openusage/commit/c34473212c85812a8dd65c596badeeb22eb09fe7) feat(telemetry): anonymous opt-out PostHog usage analytics (#735) by @robinebers
+- [1765ba7](https://github.com/robinebers/openusage/commit/1765ba7499cdb15b2ad1ecfa95e440f3475ea447) docs: simplify release-swift skill and document release channels by @robinebers
+- [57d210a](https://github.com/robinebers/openusage/commit/57d210a9b0e4d9ec242a9745b110aa36d544c34a) chore: preserve Tauri updater manifest during Swift flip by @robinebers
+- [4d1158b](https://github.com/robinebers/openusage/commit/4d1158b3431505864cb9178abe9b8e52e1872dda) chore: prepare Swift branch cutover by @robinebers
+- [a6d6050](https://github.com/robinebers/openusage/commit/a6d605069a729e1f1b8f2848f89757d332a4f8ab) chore: add macOS agent skills and skills-lock by @robinebers
+
+---
+
 ## v0.7.0-beta.15
 
 ### New Features
