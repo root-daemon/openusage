@@ -112,12 +112,13 @@ struct DashboardView: View {
                         }
                         return true
                     },
-                    // ⌘Z restores the last metric removed in Customize. Scoped to that screen (undo is a
-                    // Customize affordance) and gated on a non-empty history, so on the dashboard or with
-                    // nothing to undo it falls through untouched and never swallows a system ⌘Z.
+                    // ⌘Z walks back the last customization step (remove/add, reorder, pin/unpin, caret
+                    // move) — app-wide, since Hide and Pin happen via the dashboard's context menus too,
+                    // not only in Customize. Gated on a non-empty history so with nothing to undo it
+                    // falls through untouched and never swallows a system ⌘Z.
                     onUndo: {
-                        guard layout.screen == .customize, layout.canUndoRemove else { return false }
-                        withAnimation(Motion.spring) { _ = layout.undoLastRemove() }
+                        guard layout.canUndo else { return false }
+                        withAnimation(Motion.spring) { _ = layout.undo() }
                         return true
                     }
                 )
@@ -499,8 +500,8 @@ struct DashboardView: View {
         Group {
             if screen == .customize {
                 // Customize summarizes the layout — active (enabled) metrics and how many are pinned —
-                // centered, using the same middot the metric rows use. After a removal an Undo button
-                // appears trailing (⌘Z does the same), so the action is discoverable without the key.
+                // centered, using the same middot the metric rows use. After any undoable edit an Undo
+                // button appears trailing (⌘Z does the same), so the action is discoverable without the key.
                 ZStack {
                     Text(layout.pinLimitNotice ?? "\(activeMetricCount) active · \(layout.pinnedCount) pinned")
                         .font(.caption.weight(.semibold))
@@ -509,14 +510,14 @@ struct DashboardView: View {
                         .frame(maxWidth: .infinity)
                         .animation(Motion.spring, value: layout.pinLimitNotice)
 
-                    if layout.canUndoRemove {
+                    if layout.canUndo {
                         HStack {
                             Spacer(minLength: 0)
                             undoButton
                         }
                     }
                 }
-                .animation(Motion.spring, value: layout.canUndoRemove)
+                .animation(Motion.spring, value: layout.canUndo)
             } else {
                 HStack(alignment: .center, spacing: 8) {
                     footerIdentity
@@ -541,11 +542,12 @@ struct DashboardView: View {
         }
     }
 
-    /// The Customize footer's Undo control: appears after a removal and restores the last metric to its
-    /// prior position (the visible twin of the ⌘Z handler). A `.glass` pill matching the footer's idiom.
+    /// The Customize footer's Undo control: appears after any undoable edit and walks back the last
+    /// customization step (the visible twin of the app-wide ⌘Z handler). A `.glass` pill matching the
+    /// footer's idiom.
     private var undoButton: some View {
         Button {
-            withAnimation(Motion.spring) { _ = layout.undoLastRemove() }
+            withAnimation(Motion.spring) { _ = layout.undo() }
         } label: {
             Label("Undo", systemImage: "arrow.uturn.backward")
                 .font(.caption.weight(.semibold))
@@ -555,7 +557,7 @@ struct DashboardView: View {
         .controlSize(.small)
         // ⌘Z is handled by the popover's always-on key monitor (`PopoverKeyReader.onUndo`), not a SwiftUI
         // shortcut here — pairing both would risk a double-undo when the panel is the key window.
-        .accessibilityLabel("Undo Remove")
+        .accessibilityLabel("Undo")
     }
 
     /// Count of enabled ("active") metrics across providers — the "N active" half of the Customize footer

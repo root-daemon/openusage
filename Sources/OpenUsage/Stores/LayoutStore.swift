@@ -82,9 +82,14 @@ final class LayoutStore {
     private(set) var pinNoticeShakeTrigger = 0
     private var pinNoticeClearTask: Task<Void, Never>?
 
-    /// Bounded undo stack for metric removals done in Customize. UI-only state (not persisted): undo is a
-    /// within-session affordance, so a relaunch starts fresh. Removals only — reordering isn't tracked.
-    private var removedMetricHistory = RemovedMetricHistory()
+    /// Bounded, app-wide undo stack for layout customization (remove/add a metric, reorder metrics or
+    /// providers, pin/unpin, move across the expand caret). UI-only state (not persisted): undo is a
+    /// within-session affordance, so a relaunch starts fresh. Each entry is a pre-change `LayoutSnapshot`;
+    /// `undo()` pops and restores one.
+    private var undoHistory = LayoutUndoHistory()
+    /// True while `undo()` is replaying a snapshot, so the mutations it triggers don't push themselves
+    /// back onto the stack (an undo must not be recorded as a new, separately-undoable action).
+    private var isApplyingUndo = false
 
     /// Menu-bar display style (Text strip vs. compact Bars). Persisted; defaults to `.text`.
     var menuBarStyle: MenuBarStyle {
@@ -333,83 +338,85 @@ final class LayoutStore {
     /// Toggle a metric on (add to the placed list) or off (remove it). The single seam the Customize
     /// switches drive, so on/off goes through the same add/remove path the rest of the app uses.
     func setMetricEnabled(_ descriptorID: String, _ enabled: Bool) {
-        if enabled {
-            if defaultExpandedOnEnableIDs.remove(descriptorID) != nil {
-                expandedMetricIDs.insert(descriptorID)
-                persistExpanded()
+        recordingUndoStep {
+            if enabled {
+                if defaultExpandedOnEnableIDs.remove(descriptorID) != nil {
+                    expandedMetricIDs.insert(descriptorID)
+                    persistExpanded()
+                }
+                add(descriptorID)
+            } else if let widget = placed.first(where: { $0.descriptorID == descriptorID }) {
+                remove(widget.id)
             }
-            add(descriptorID)
-        } else if let widget = placed.first(where: { $0.descriptorID == descriptorID }) {
-            recordRemoval(of: descriptorID)
-            remove(widget.id)
         }
     }
 
-    // MARK: - Undo removal (#603)
+    // MARK: - Undo (#603)
 
-    /// Whether the most recent Customize removal can be restored. Drives the Undo affordance's
-    /// presence (and the ⌘Z handler's no-op guard).
-    var canUndoRemove: Bool { removedMetricHistory.canUndo }
+    /// Whether there's at least one customization step to walk back. Drives the Customize Undo button's
+    /// presence and the app-wide ⌘Z handler's no-op guard.
+    var canUndo: Bool { undoHistory.canUndo }
 
-    /// Capture a removal's position before it's dropped, so undo can put the metric back where it sat.
-    /// The provider's stored metric order keeps a disabled metric in place, so re-enabling alone usually
-    /// restores the slot; recording the index lets undo repair the order if it shifted while off.
-    private func recordRemoval(of descriptorID: String) {
-        guard let providerID = registry.descriptor(id: descriptorID)?.providerID else { return }
-        let order = metricOrder(for: providerID)
-        guard let index = order.firstIndex(of: descriptorID) else { return }
-        removedMetricHistory.record(
-            RemovedMetric(
-                descriptorID: descriptorID,
-                providerID: providerID,
-                indexInProvider: index,
-                wasExpanded: expandedMetricIDs.contains(descriptorID)
-            )
+    /// A snapshot of the current undoable layout state.
+    private func currentSnapshot() -> LayoutSnapshot {
+        LayoutSnapshot(
+            placed: placed,
+            providerOrder: providerOrder,
+            metricOrderByProvider: metricOrderByProvider,
+            pinnedMetricIDs: pinnedMetricIDs,
+            expandedMetricIDs: expandedMetricIDs,
+            expandedProviderIDs: expandedProviderIDs,
+            defaultExpandedOnEnableIDs: defaultExpandedOnEnableIDs
         )
     }
 
-    /// Restore the most recently removed metric to its prior position and re-enable it. A no-op when
-    /// there's nothing to undo, or when the metric's provider/descriptor no longer exists. Returns
-    /// whether anything was restored — callers key haptics / feedback off it.
+    /// Run a user-facing layout mutation, recording one undo step for it. Snapshots state before the
+    /// change and pushes that snapshot only if the change actually altered the layout — so a no-op
+    /// action (toggling an already-on metric, dropping a row back where it started) doesn't pollute the
+    /// stack with empty steps. Re-entrant calls (a mutation built from smaller ones) and undo replay
+    /// itself coalesce into the single outer step via `isApplyingUndo`.
+    private func recordingUndoStep<T>(_ body: () -> T) -> T {
+        // Already inside an undoable scope (or replaying an undo): just run — the outer scope owns the
+        // single recorded step, and undo must never record itself.
+        guard !isApplyingUndo else { return body() }
+        let before = currentSnapshot()
+        isApplyingUndo = true
+        defer { isApplyingUndo = false }
+        let result = body()
+        if currentSnapshot() != before {
+            undoHistory.record(before)
+        }
+        return result
+    }
+
+    /// Walk back the most recent customization step, restoring the layout to its state just before that
+    /// action. A no-op (returns `false`) when there's nothing to undo. Repeated calls step further back.
+    /// Available app-wide (dashboard context menus and Customize alike), not just on one screen.
     @discardableResult
-    func undoLastRemove() -> Bool {
-        guard let removal = removedMetricHistory.popLast() else { return false }
-        guard registry.descriptor(id: removal.descriptorID) != nil,
-              registry.provider(id: removal.providerID) != nil else {
-            // The descriptor or provider went away (e.g. a provider was turned off) — drop the stale
-            // entry (already popped) and try the next one down so ⌘Z still does something useful.
-            return undoLastRemove()
-        }
-
-        // Repair the metric's slot in its provider's order if it drifted while the metric was off (a
-        // reorder of the surviving rows). Re-enabling then lands it back in this position because
-        // `syncPlacedOrder` sorts `placed` by the provider's metric order.
-        restorePosition(of: removal)
-
-        // Re-enable through the normal seam so add + sync run exactly as a manual re-toggle would —
-        // but record nothing, since this *is* the undo.
-        if !isMetricEnabled(removal.descriptorID) {
-            add(removal.descriptorID)
-        }
+    func undo() -> Bool {
+        guard let snapshot = undoHistory.popLast() else { return false }
+        isApplyingUndo = true
+        defer { isApplyingUndo = false }
+        restore(snapshot)
         return true
     }
 
-    /// Move `removal.descriptorID` back to its recorded index within its provider's metric order and
-    /// restore its expanded (below-the-caret) membership, leaving every other metric in place.
-    private func restorePosition(of removal: RemovedMetric) {
-        let providerID = removal.providerID
-        if removal.wasExpanded {
-            expandedMetricIDs.insert(removal.descriptorID)
-        } else {
-            expandedMetricIDs.remove(removal.descriptorID)
-        }
-
-        var order = metricOrder(for: providerID).filter { $0 != removal.descriptorID }
-        let target = min(max(removal.indexInProvider, 0), order.count)
-        order.insert(removal.descriptorID, at: target)
-        metricOrderByProvider[providerID] = order
+    /// Restore every undoable field from a snapshot and persist the result. Called by `undo()`.
+    private func restore(_ snapshot: LayoutSnapshot) {
+        cancelDrag()
+        placed = snapshot.placed
+        providerOrder = snapshot.providerOrder
+        metricOrderByProvider = snapshot.metricOrderByProvider
+        pinnedMetricIDs = snapshot.pinnedMetricIDs
+        expandedMetricIDs = snapshot.expandedMetricIDs
+        expandedProviderIDs = snapshot.expandedProviderIDs
+        defaultExpandedOnEnableIDs = snapshot.defaultExpandedOnEnableIDs
+        persist()
+        persistProviderOrder()
         persistMetricOrder()
+        persistPins()
         persistExpanded()
+        persistExpandedProviders()
     }
 
     /// Reorder whole providers when `dragged`'s header is dropped onto `target`'s. Works on the currently
@@ -417,13 +424,15 @@ final class LayoutStore {
     /// Returns whether the order actually changed — the drag gestures key haptics off it.
     @discardableResult
     func reorderProvider(dragged: String, target: String) -> Bool {
-        let shown = customizeGroups.map(\.provider.id)
-        guard let next = Self.reordered(shown, dragged: dragged, target: target) else { return false }
-        let rest = orderedProviderIDs().filter { !next.contains($0) }
-        providerOrder = next + rest
-        persistProviderOrder()
-        syncPlacedOrder()
-        return true
+        recordingUndoStep {
+            let shown = customizeGroups.map(\.provider.id)
+            guard let next = Self.reordered(shown, dragged: dragged, target: target) else { return false }
+            let rest = orderedProviderIDs().filter { !next.contains($0) }
+            providerOrder = next + rest
+            persistProviderOrder()
+            syncPlacedOrder()
+            return true
+        }
     }
 
     /// Reorder metrics within one provider when `dragged` is dropped onto `target` (both descriptor ids of
@@ -436,6 +445,10 @@ final class LayoutStore {
     /// the drag gestures key haptics off it.
     @discardableResult
     func reorderMetric(dragged: String, target: String, in providerID: String) -> Bool {
+        recordingUndoStep { reorderMetricImpl(dragged: dragged, target: target, in: providerID) }
+    }
+
+    private func reorderMetricImpl(dragged: String, target: String, in providerID: String) -> Bool {
         guard dragged != target else { return false }
         let ordered = metricOrder(for: providerID)
         guard ordered.contains(dragged), ordered.contains(target) else { return false }
@@ -474,6 +487,10 @@ final class LayoutStore {
     /// Returns whether anything changed.
     @discardableResult
     func setMetricExpanded(_ descriptorID: String, _ expanded: Bool) -> Bool {
+        recordingUndoStep { setMetricExpandedImpl(descriptorID, expanded) }
+    }
+
+    private func setMetricExpandedImpl(_ descriptorID: String, _ expanded: Bool) -> Bool {
         guard let providerID = registry.descriptor(id: descriptorID)?.providerID else { return false }
         guard expandedMetricIDs.contains(descriptorID) != expanded else { return false }
         defaultExpandedOnEnableIDs.remove(descriptorID)
@@ -503,6 +520,12 @@ final class LayoutStore {
     /// remains metric-only.
     @discardableResult
     func applyMetricDividerOrder(_ orderedIDsWithDivider: [String], dividerID: String, in providerID: String) -> Bool {
+        recordingUndoStep {
+            applyMetricDividerOrderImpl(orderedIDsWithDivider, dividerID: dividerID, in: providerID)
+        }
+    }
+
+    private func applyMetricDividerOrderImpl(_ orderedIDsWithDivider: [String], dividerID: String, in providerID: String) -> Bool {
         let validIDs = metricOrder(for: providerID)
         let validSet = Set(validIDs)
         guard orderedIDsWithDivider.contains(dividerID) else { return false }
@@ -653,15 +676,18 @@ final class LayoutStore {
     }
 
     /// Pin or unpin a metric for the menu bar. Pinning is a no-op when it would exceed a cap, so callers
-    /// can gate the control on `canPin` and trust this never over-pins.
+    /// can gate the control on `canPin` and trust this never over-pins. Undoable like the other layout
+    /// actions — the no-op guards mean a denied or redundant pin records no step.
     func setPinned(_ pinned: Bool, for descriptorID: String) {
-        if pinned {
-            guard canPin(descriptorID), registry.descriptor(id: descriptorID) != nil else { return }
-            guard pinnedMetricIDs.insert(descriptorID).inserted else { return }
-        } else {
-            guard pinnedMetricIDs.remove(descriptorID) != nil else { return }
+        recordingUndoStep {
+            if pinned {
+                guard canPin(descriptorID), registry.descriptor(id: descriptorID) != nil else { return }
+                guard pinnedMetricIDs.insert(descriptorID).inserted else { return }
+            } else {
+                guard pinnedMetricIDs.remove(descriptorID) != nil else { return }
+            }
+            persistPins()
         }
-        persistPins()
     }
 
     func togglePin(_ descriptorID: String) {
@@ -720,9 +746,9 @@ final class LayoutStore {
 
     func resetToDefault() {
         cancelDrag()
-        // The recorded prior positions describe the pre-reset layout; after a reset they'd restore a
-        // stale arrangement, so the undo stack is dropped wholesale.
-        removedMetricHistory.clear()
+        // Reset is its own deliberate action, not an undoable layout edit; the recorded snapshots
+        // describe the pre-reset layout, so the undo stack is dropped wholesale here.
+        undoHistory.clear()
         placed = defaultMetricIDs
             .filter { registry.descriptor(id: $0) != nil }
             .map { PlacedWidget(descriptorID: $0) }
@@ -749,9 +775,9 @@ final class LayoutStore {
     func resetProvider(_ providerID: String) {
         guard registry.provider(id: providerID) != nil else { return }
         cancelDrag()
-        // This provider's recorded removals describe its pre-reset order; drop them so undo can't
-        // restore into the just-reset arrangement. Other providers' history stays intact.
-        removedMetricHistory.removeAll(forProvider: providerID)
+        // A reset is its own action, not an undoable edit. Snapshots are whole-layout, so there's no
+        // per-provider trim to do — clear the stack so undo can't restore into the pre-reset layout.
+        undoHistory.clear()
 
         // This provider's descriptor universe — the membership sets below are all scoped to it.
         let owned = Set(registry.descriptors(for: providerID).map(\.id))
