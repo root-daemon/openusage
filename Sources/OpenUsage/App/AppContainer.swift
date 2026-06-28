@@ -12,6 +12,10 @@ final class AppContainer {
     /// Single source of truth for which providers the user has turned off. Both stores consult it (via
     /// injected closures) and the Providers settings tab drives it.
     let enablement: ProviderEnablementStore
+    /// Providers that need a user-supplied API key (OpenRouter today), conforming to `APIKeyManaging`.
+    /// Settings ▸ API Keys lists these and writes key changes through the capability. Empty when no
+    /// installed provider needs a user key, in which case the section hides itself.
+    let apiKeyProviders: [any APIKeyManaging]
     /// Quota pace notification preferences (master + three triggers). Drives the Settings section and is
     /// read by `WidgetDataStore.evaluateNotifications`.
     let notificationSettings: NotificationSettingsStore
@@ -36,9 +40,11 @@ final class AppContainer {
             AntigravityProvider(),
             CopilotProvider(),
             DevinProvider(),
-            GrokProvider()
+            GrokProvider(),
+            OpenRouterProvider()
         ]
         let registry = WidgetRegistry.from(providers)
+        let apiKeyProviders = providers.compactMap { $0 as? any APIKeyManaging }
         let enablement = ProviderEnablementStore()
         let notificationSettings = NotificationSettingsStore()
         let layout = LayoutStore(
@@ -57,6 +63,7 @@ final class AppContainer {
         enablement.onProviderEnabled = { [weak dataStore] id in dataStore?.clearFailureBackoff(for: id) }
         self.registry = registry
         self.enablement = enablement
+        self.apiKeyProviders = apiKeyProviders
         self.notificationSettings = notificationSettings
         self.layout = layout
         self.dataStore = dataStore

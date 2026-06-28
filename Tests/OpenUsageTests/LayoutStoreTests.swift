@@ -365,6 +365,98 @@ final class LayoutStoreTests: XCTestCase {
         XCTAssertTrue(store.isMetricExpanded("cursor.requests"))
     }
 
+    func testNewlySeededDefaultExpandedMetricEntersBelowCaretForExistingLayout() {
+        let defaults = makeDefaults("SeedNewExpanded")
+        // An existing layout from before the new metric shipped, with a saved expanded set that can't
+        // know about it yet.
+        saveStored([PlacedWidget(descriptorID: "claude.session")], forKey: "layout", in: defaults)
+        defaults.set(["claude.weekly"], forKey: "layout.expandedMetrics")
+
+        let store = LayoutStore(
+            registry: .mock,
+            defaults: defaults,
+            storageKey: "layout",
+            defaultMetricIDs: ["claude.session", "claude.today"],
+            migrationBaselineMetricIDs: ["claude.session"],
+            defaultExpandedMetricIDs: ["claude.today"]
+        )
+
+        // The new default is auto-enabled by migration AND tucked below the caret, not surfaced primary.
+        XCTAssertTrue(store.isMetricEnabled("claude.today"))
+        XCTAssertTrue(store.isMetricExpanded("claude.today"))
+        // A metric the user already lived with stays always-shown.
+        XCTAssertFalse(store.isMetricExpanded("claude.session"))
+
+        // The new expanded membership persists across reloads.
+        let reloaded = LayoutStore(
+            registry: .mock,
+            defaults: defaults,
+            storageKey: "layout",
+            defaultMetricIDs: ["claude.session", "claude.today"],
+            migrationBaselineMetricIDs: ["claude.session"],
+            defaultExpandedMetricIDs: ["claude.today"]
+        )
+        XCTAssertTrue(reloaded.isMetricExpanded("claude.today"))
+    }
+
+    func testMigrationPersistKeepsLegacyOptionalMetricExpandOnEnableAfterReload() {
+        let defaults = makeDefaults("SeedExpandedKeepsFallback")
+        // Legacy layout: predates the expanded feature (no saved expanded set).
+        saveStored([PlacedWidget(descriptorID: "cursor.usage")], forKey: "layout", in: defaults)
+
+        let args: (UserDefaults) -> LayoutStore = { d in
+            LayoutStore(
+                registry: .mock,
+                defaults: d,
+                storageKey: "layout",
+                defaultMetricIDs: ["cursor.usage", "claude.today"],
+                migrationBaselineMetricIDs: ["cursor.usage"],
+                // claude.today is a brand-new default (auto-enabled + tucked, persisting an expanded set);
+                // cursor.requests is an optional default-expanded metric the user hasn't enabled yet.
+                defaultExpandedMetricIDs: ["claude.today", "cursor.requests"]
+            )
+        }
+
+        // First launch performs the migration and persists the expanded set.
+        _ = args(defaults)
+
+        // Second launch now sees a saved expanded set — the legacy optional metric must still enter below
+        // the caret when first enabled (regression: persisting the migration zeroed the on-enable queue).
+        let reloaded = args(defaults)
+        XCTAssertFalse(reloaded.isMetricExpanded("cursor.requests"))
+        reloaded.setMetricEnabled("cursor.requests", true)
+        XCTAssertTrue(reloaded.isMetricExpanded("cursor.requests"))
+    }
+
+    func testConsumedExpandOnEnableStaysConsumedAcrossRelaunch() {
+        let defaults = makeDefaults("ExpandOnEnablePersists")
+        saveStored([PlacedWidget(descriptorID: "cursor.usage")], forKey: "layout", in: defaults)
+
+        let args: (UserDefaults) -> LayoutStore = { d in
+            LayoutStore(
+                registry: .mock,
+                defaults: d,
+                storageKey: "layout",
+                defaultMetricIDs: ["cursor.usage"],
+                migrationBaselineMetricIDs: ["cursor.usage"],
+                defaultExpandedMetricIDs: ["cursor.requests"]
+            )
+        }
+
+        // The user drags the still-disabled optional metric above the divider — an explicit placement
+        // that consumes its expand-on-enable default.
+        let store = args(defaults)
+        XCTAssertTrue(store.reorderMetric(dragged: "cursor.requests", target: "cursor.usage", in: "cursor"))
+        XCTAssertFalse(store.isMetricExpanded("cursor.requests"))
+
+        // After a relaunch the consumed default must stay consumed — enabling it leaves it above the fold
+        // (regression: the queue was recomputed each launch and resurrected the consumed entry).
+        let reloaded = args(defaults)
+        reloaded.setMetricEnabled("cursor.requests", true)
+        XCTAssertTrue(reloaded.isMetricEnabled("cursor.requests"))
+        XCTAssertFalse(reloaded.isMetricExpanded("cursor.requests"))
+    }
+
     func testExplicitDividerMoveOverridesDefaultExpandedOnEnable() {
         let defaults = makeDefaults("LegacyEnableExpandedOverride")
         saveStored([PlacedWidget(descriptorID: "cursor.usage")], forKey: "layout", in: defaults)
@@ -384,7 +476,7 @@ final class LayoutStoreTests: XCTestCase {
             divider,
             "cursor.credits",
             "cursor.today"
-        ], dividerID: divider, in: "cursor"))
+        ], dragged: "cursor.requests", dividerID: divider, in: "cursor"))
         store.setMetricEnabled("cursor.requests", true)
 
         XCTAssertTrue(store.isMetricEnabled("cursor.requests"))
@@ -422,7 +514,38 @@ final class LayoutStoreTests: XCTestCase {
             "cursor.today",
             "cursor.usage",
             divider
-        ], dividerID: divider, in: "cursor"))
+        ], dragged: "cursor.today", dividerID: divider, in: "cursor"))
+        store.setMetricEnabled("cursor.requests", true)
+
+        XCTAssertTrue(store.isMetricExpanded("cursor.requests"))
+    }
+
+    func testCustomizeReorderDoesNotConsumeUnmovedDisabledExpandOnEnable() {
+        let defaults = makeDefaults("CustomizePrimaryReorderKeepsUnmovedFallback")
+        saveStored([
+            PlacedWidget(descriptorID: "cursor.usage"),
+            PlacedWidget(descriptorID: "cursor.today")
+        ], forKey: "layout", in: defaults)
+        let store = LayoutStore(
+            registry: .mock,
+            defaults: defaults,
+            storageKey: "layout",
+            defaultMetricIDs: ["cursor.usage", "cursor.today"],
+            migrationBaselineMetricIDs: ["cursor.usage", "cursor.today"],
+            defaultExpandedMetricIDs: ["cursor.requests"]
+        )
+        let divider = "cursor::expanded-divider"
+
+        // Customize passes the full metric list (metricOrderWithDivider includes the disabled
+        // cursor.requests before the divider) even when only reordering primary rows. The dragged
+        // metric is cursor.today, not cursor.requests — so cursor.requests' below-caret default must
+        // survive the reorder and still place it below the caret when later enabled.
+        XCTAssertTrue(store.applyMetricDividerOrder([
+            "cursor.today",
+            "cursor.usage",
+            "cursor.requests",
+            divider
+        ], dragged: "cursor.today", dividerID: divider, in: "cursor"))
         store.setMetricEnabled("cursor.requests", true)
 
         XCTAssertTrue(store.isMetricExpanded("cursor.requests"))
@@ -745,7 +868,7 @@ final class LayoutStoreTests: XCTestCase {
             "cursor.requests",
             "cursor.credits",
             "cursor.today"
-        ], dividerID: divider, in: "cursor"))
+        ], dragged: "cursor.requests", dividerID: divider, in: "cursor"))
 
         XCTAssertFalse(store.isMetricExpanded("cursor.usage"))
         XCTAssertTrue(store.isMetricExpanded("cursor.requests"))
@@ -768,7 +891,7 @@ final class LayoutStoreTests: XCTestCase {
             divider,
             "cursor.credits",
             "cursor.today"
-        ], dividerID: divider, in: "cursor"))
+        ], dragged: "cursor.requests", dividerID: divider, in: "cursor"))
 
         XCTAssertFalse(store.isMetricExpanded("cursor.requests"))
     }
@@ -789,7 +912,7 @@ final class LayoutStoreTests: XCTestCase {
             "cursor.usage",
             "cursor.today",
             divider
-        ], dividerID: divider, in: "cursor"))
+        ], dragged: "cursor.today", dividerID: divider, in: "cursor"))
         XCTAssertEqual(store.orderedSupportedMetrics(for: "cursor").map(\.id), [
             "cursor.usage", "cursor.credits", "cursor.today", "cursor.requests"
         ])

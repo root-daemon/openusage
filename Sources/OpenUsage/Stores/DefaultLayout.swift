@@ -23,7 +23,10 @@ enum DefaultLayout {
         "devin.daily", "devin.weekly", "devin.extra",
 
         "grok.creditsUsed", "grok.trend",
-        "grok.payAsYouGo", "grok.today", "grok.yesterday", "grok.last30"
+        "grok.payAsYouGo", "grok.today", "grok.yesterday", "grok.last30",
+
+        "openrouter.credits", "openrouter.balance",
+        "openrouter.today", "openrouter.week", "openrouter.month", "openrouter.keyLimit"
     ]
 
     /// Frozen snapshot of the default-on metrics from the release that introduced default seeding.
@@ -54,7 +57,8 @@ enum DefaultLayout {
         "claude.session", "claude.weekly",
         "codex.session", "codex.weekly",
         "cursor.auto", "cursor.api",
-        "copilot.premium"
+        "copilot.premium",
+        "openrouter.credits"
     ]
 
     /// Metrics tucked below the per-provider "Shown on expand" divider on a fresh install. This is
@@ -78,6 +82,9 @@ enum DefaultLayout {
         // below the caret. Completions has data on free tier only, so it's commonly "No data" for paid.
         "copilot.chat", "copilot.completions",
         "devin.extra",
-        "grok.payAsYouGo", "grok.today", "grok.yesterday", "grok.last30"
+        "grok.payAsYouGo", "grok.today", "grok.yesterday", "grok.last30",
+        // OpenRouter: Credits meter + Balance stay above the fold; period spend and the per-key cap
+        // sit below the caret.
+        "openrouter.today", "openrouter.week", "openrouter.month", "openrouter.keyLimit"
     ]
 }
