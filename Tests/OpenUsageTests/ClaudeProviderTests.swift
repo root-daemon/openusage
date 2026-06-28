@@ -1314,6 +1314,56 @@ final class ClaudeProviderTests: XCTestCase {
         XCTAssertNil(badge(snapshot.lines, "Error"))
     }
 
+    func testTransientBlockBacksOffUsageAPICall() async {
+        // Bugbot #bc71842b: the gate records exponential backoff on 5xx/connection errors, but
+        // refresh() only short-circuited for terminal blocks — it never consulted the gate before
+        // probe/fetchLiveUsage, so an active transient block still hit /api/oauth/usage on every
+        // periodic refresh and could keep extending backoff while hammering a failing endpoint. Fix:
+        // fetchLiveUsage skips the usage API call when a transient block is active, serving the
+        // last-good usage (or a badge) instead. The delegated/in-process refresh still runs.
+        let now = OpenUsageISO8601.date(from: "2026-02-20T16:00:00.000Z")!
+        let files = FakeFiles([
+            "/tmp/claude/.credentials.json": #"{"claudeAiOauth":{"accessToken":"token","refreshToken":"refresh","expiresAt":4102444800000,"subscriptionType":"pro","scopes":["user:profile"]}}"#
+        ])
+        // The HTTP client would return 200, but the transient block should prevent the call.
+        let httpClient = FakeHTTPClient(response: HTTPResponse(
+            statusCode: 200, headers: [:],
+            body: Data(#"{"five_hour":{"utilization":42,"resets_at":"2099-01-01T00:00:00.000Z"}}"#.utf8)
+        ))
+        let authStore = ClaudeAuthStore(
+            environment: FakeEnvironment(["CLAUDE_CONFIG_DIR": "/tmp/claude"]),
+            files: files, keychain: FakeKeychain(), now: { now }
+        )
+        let gate = ClaudeRefreshFailureGate(
+            defaults: Self.isolatedDefaults(), storageKey: "gate",
+            currentFingerprint: { authStore.currentFingerprint() }
+        )
+        // Prime a TRANSIENT block active for 5 more minutes.
+        gate.recordTransientFailure(now: now.addingTimeInterval(-60))
+
+        let provider = ClaudeProvider(
+            authStore: authStore,
+            usageClient: ClaudeUsageClient(httpClient: httpClient),
+            ccusageRunner: CcusageRunner(processRunner: FakeProcessRunner(), homeDirectory: { URL(fileURLWithPath: "/Users/test") }),
+            coordinator: ClaudeDelegatedRefreshCoordinator(
+                processRunner: FingerprintRotatingRunner {},
+                environment: FakeEnvironment([:]),
+                currentFingerprint: { authStore.currentFingerprint() },
+                now: { now }, sleep: { _ in }, isExecutable: { _ in false },
+                defaults: Self.isolatedDefaults()
+            ),
+            failureGate: gate,
+            now: { now }
+        )
+
+        let snapshot = await provider.refresh()
+
+        // The transient block must skip the usage API call — no requests were made.
+        XCTAssertTrue(httpClient.requests.isEmpty, "transient block must skip the usage API call")
+        // The snapshot serves the rate-limited badge (no last-good usage yet).
+        XCTAssertEqual(badge(snapshot.lines, "Status")?.hasPrefix("Rate limited"), true)
+    }
+
     private static func isolatedDefaults() -> UserDefaults {
         UserDefaults(suiteName: "claude.provider.test.\(UUID().uuidString)")!
     }

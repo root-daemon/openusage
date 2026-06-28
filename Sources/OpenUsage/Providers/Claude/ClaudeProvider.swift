@@ -81,9 +81,17 @@ final class ClaudeProvider: ProviderRuntime {
         // external re-login (fingerprint change) is detected immediately, not up to 15s late — without
         // it, the short-circuit would return `tokenExpired` for up to 15s after the user re-logged in,
         // while the already-loaded fresh candidates go untried (bugbot #f6dcff9f).
-        if case .terminal? = failureGate.currentBlockStatus(now: now()),
-           !failureGate.shouldAttempt(now: now(), forceRecheck: true),
-           !coordinator.canAttempt(now: now()) {
+        //
+        // The whole check runs off-main: `shouldAttempt(forceRecheck:)` re-reads the keychain via
+        // `currentFingerprint()`, and `canAttempt` does filesystem checks for the CLI binary. Both
+        // block the calling thread, so running them on the main actor would freeze the UI on every
+        // refresh tick while a terminal block is active (bugbot #1ba3ab5b).
+        let shouldShortCircuit = await loadOffMainActor { [failureGate, coordinator, now] in
+            guard case .terminal? = failureGate.currentBlockStatus(now: now()) else { return false }
+            return !failureGate.shouldAttempt(now: now(), forceRecheck: true)
+                && !coordinator.canAttempt(now: now())
+        }
+        if shouldShortCircuit {
             AppLog.info(LogTag.auth("claude"), "refresh blocked (terminal, credentials unchanged, CLI unavailable or in cooldown); not calling API")
             return ProviderSnapshot.error(provider: provider, error: ClaudeAuthError.tokenExpired)
         }
@@ -193,6 +201,18 @@ final class ClaudeProvider: ProviderRuntime {
            let refreshToken = state.oauth.refreshToken,
            !refreshToken.isEmpty {
             state.oauth.accessToken = try await refreshAccessToken(state: &state, refreshToken: refreshToken)
+        }
+
+        // Transient failure backoff: if the gate has an active transient block (from a recent 5xx /
+        // connection failure on the usage API), skip the live usage call and serve the last-good
+        // usage so a failing endpoint isn't hammered on every periodic refresh (bugbot #bc71842b).
+        // This is checked AFTER the delegated/in-process refresh steps above so credential recovery
+        // still runs during a transient block — only the usage API call is skipped. The block
+        // auto-unblocks by time (exponential backoff) or when the fingerprint changes (external
+        // re-login). Serving the last-good usage mirrors the 429 cooldown path.
+        if case .transient(let until, _)? = failureGate.currentBlockStatus(now: now()), now() < until {
+            AppLog.info(LogTag.plugin("claude"), "transient failure backoff (serving \(lastGoodUsage == nil ? "badge" : "last-good usage"))")
+            return rateLimitedSnapshot(credentials: state.oauth, retryAfterSeconds: Int(until.timeIntervalSince(now()).rounded(.up)))
         }
 
         var working = state
