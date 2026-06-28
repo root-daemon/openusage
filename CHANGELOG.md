@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.1-beta.3
+
+### Bug Fixes
+- Resolve env-var API keys (e.g. `OPENROUTER_API_KEY`) from the login shell in packaged builds, and remove the "Stored in …" caption from the API Keys editor ([#788](https://github.com/robinebers/openusage/pull/788)) by @robinebers
+
+---
+
+### Changelog
+**Full Changelog**: [v0.7.1-beta.2...v0.7.1-beta.3](https://github.com/robinebers/openusage/compare/v0.7.1-beta.2...v0.7.1-beta.3)
+
+- [8d0b6c7](https://github.com/robinebers/openusage/commit/8d0b6c74415a644ef4f39258433df1da261fae25) fix(providers): resolve env-var API keys from the login shell in packaged builds (#788) by @robinebers
+
 ## v0.7.1-beta.2
 
 ### New Features
