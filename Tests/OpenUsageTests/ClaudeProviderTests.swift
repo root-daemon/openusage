@@ -646,6 +646,72 @@ final class ClaudeProviderTests: XCTestCase {
         XCTAssertNil(badge(snapshot.lines, "Error"))
     }
 
+    func testDelegatedRefreshRecoversWhenRefreshTokenRevokedAndCLISucceeds() async {
+        // Regression for the bugbot-found bug: when the stored refresh token is present but revoked
+        // (refresh endpoint returns `invalid_grant`), `fetchLiveUsage` throws `sessionExpired` and the
+        // `probe` catch block must STILL get a chance to delegate to the `claude` CLI. The original
+        // implementation recorded the terminal failure BEFORE calling `delegatedRefreshIfPossible`, so
+        // the gate's 15s recheck throttle (set by `recordTerminalAuthFailure`'s `lastRecheckAt = now`)
+        // made `shouldAttempt(now: now)` return false on the immediate next call — the CLI touch never
+        // ran and the provider dead-ended on `sessionExpired` even though the CLI could have rotated
+        // the credential. Fix: try `delegatedRefreshIfPossible` FIRST; only record the terminal block
+        // if delegation also fails.
+        let now = OpenUsageISO8601.date(from: "2026-02-20T16:00:00.000Z")!
+        let path = "/tmp/claude/.credentials.json"
+        let files = FakeFiles([
+            // A still-unexpired access token with a USABLE-LOOKING refresh token — the early
+            // `needsRefresh && !hasUsableRefreshToken` branch in `fetchLiveUsage` is skipped, so
+            // recovery has to come from the `sessionExpired` catch block.
+            path: #"{"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"revoked-refresh","expiresAt":4070908800000,"subscriptionType":"pro","scopes":["user:profile"]}}"#
+        ])
+        let httpClient = RoutingHTTPClient { request in
+            if request.url.absoluteString.hasSuffix("/api/oauth/usage") {
+                let authorization = request.headers["Authorization"] ?? ""
+                guard authorization.contains("cli-rotated") else {
+                    return HTTPResponse(statusCode: 401, headers: [:], body: Data())
+                }
+                return HTTPResponse(
+                    statusCode: 200, headers: [:],
+                    body: Data(#"{"five_hour":{"utilization":55,"resets_at":"2099-01-01T00:00:00.000Z"}}"#.utf8)
+                )
+            }
+            // Refresh endpoint: the stored refresh token is revoked.
+            return HTTPResponse(statusCode: 400, headers: [:], body: Data(#"{"error":"invalid_grant"}"#.utf8))
+        }
+        let authStore = ClaudeAuthStore(
+            environment: FakeEnvironment(["CLAUDE_CONFIG_DIR": "/tmp/claude"]),
+            files: files, keychain: FakeKeychain(), now: { now }
+        )
+        let runner = FingerprintRotatingRunner {
+            files.files[path] = #"{"claudeAiOauth":{"accessToken":"cli-rotated","refreshToken":"fresh-refresh","expiresAt":4102444800000,"subscriptionType":"pro","scopes":["user:profile"]}}"#
+        }
+        let provider = ClaudeProvider(
+            authStore: authStore,
+            usageClient: ClaudeUsageClient(httpClient: httpClient),
+            ccusageRunner: CcusageRunner(processRunner: FakeProcessRunner(), homeDirectory: { URL(fileURLWithPath: "/Users/test") }),
+            coordinator: ClaudeDelegatedRefreshCoordinator(
+                processRunner: runner,
+                environment: FakeEnvironment(["CLAUDE_CLI_PATH": "/fake/claude"]),
+                currentFingerprint: { authStore.currentFingerprint() },
+                now: { now },
+                sleep: { _ in },
+                isExecutable: { $0 == "/fake/claude" },
+                defaults: Self.isolatedDefaults()
+            ),
+            failureGate: ClaudeRefreshFailureGate(
+                defaults: Self.isolatedDefaults(),
+                storageKey: "gate",
+                currentFingerprint: { authStore.currentFingerprint() }
+            ),
+            now: { now }
+        )
+
+        let snapshot = await provider.refresh()
+
+        XCTAssertEqual(Self.progress(snapshot.lines, "Session")?.used, 55)
+        XCTAssertNil(badge(snapshot.lines, "Error"))
+    }
+
     func testDelegatedRefreshFailsWhenCLIUnavailableThenTokenExpired() async {
         // No usable refresh token AND no `claude` CLI to delegate to → the snapshot reports the friendly
         // token-expired error rather than silently recovering.

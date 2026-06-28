@@ -116,14 +116,18 @@ final class ClaudeProvider: ProviderRuntime {
             do {
                 mapped = try await fetchLiveUsage(state: &state)
             } catch let error as ClaudeAuthError where error == .sessionExpired || error == .tokenExpired {
-                // The in-process refresh hit a dead end (revoked refresh token, or none at all). Mark the
-                // gate terminal, then ask the `claude` CLI to refresh; if it rotates the credential,
+                // The in-process refresh hit a dead end (revoked refresh token, or none at all). Try
+                // delegating to the `claude` CLI FIRST — it owns the refresh token + client credentials
+                // and can rotate the credential where OpenUsage can't. Only if delegation also fails do
+                // we record the terminal block: a terminal block sets `lastRecheckAt = now`, which trips
+                // the gate's 15s recheck throttle and would block the very `shouldAttempt` call the
+                // delegation path needs, so the order matters (this was a bugbot-found bug). On success,
                 // re-read and retry the live fetch ONCE before falling back to the next source.
-                failureGate.recordTerminalAuthFailure(reason: "\(error)", now: now())
                 if let recovered = try await delegatedRefreshIfPossible(currentSource: state.source) {
                     state = recovered
                     mapped = try await fetchLiveUsage(state: &state)
                 } else {
+                    failureGate.recordTerminalAuthFailure(reason: "\(error)", now: now())
                     throw error
                 }
             } catch let error as ClaudeUsageError {
