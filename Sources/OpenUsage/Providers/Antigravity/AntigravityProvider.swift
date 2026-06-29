@@ -10,16 +10,7 @@ import Foundation
 /// 3. Keychain token → Google Cloud Code (works with the app closed); refreshes via Google OAuth.
 @MainActor
 final class AntigravityProvider: ProviderRuntime {
-    let provider = Provider(
-        id: "antigravity",
-        displayName: "Antigravity",
-        icon: .providerMark("antigravity"),
-        links: [
-            .init(label: "Docs", url: "https://antigravity.google/docs"),
-            .init(label: "Download", url: "https://antigravity.google/download"),
-            .init(label: "Changelog", url: "https://antigravity.google/changelog")
-        ]
-    )
+    let provider = Provider(id: "antigravity", displayName: "Antigravity", icon: .providerMark("antigravity"))
 
     let authStore: AntigravityAuthStore
     let usageClient: AntigravityUsageClient

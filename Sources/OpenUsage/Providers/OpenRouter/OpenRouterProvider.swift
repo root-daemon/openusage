@@ -8,7 +8,7 @@ final class OpenRouterProvider: ProviderRuntime {
         icon: .providerMark("openrouter"),
         links: [
             .init(label: "Status", url: "https://status.openrouter.ai/"),
-            .init(label: "Activity", url: "https://openrouter.ai/activity"),
+            .init(label: "Dashboard", url: "https://openrouter.ai/activity"),
             .init(label: "API Keys", url: "https://openrouter.ai/keys")
         ]
     )

@@ -8,7 +8,7 @@ final class CopilotProvider: ProviderRuntime {
         icon: .providerMark("copilot"),
         links: [
             .init(label: "Status", url: "https://www.githubstatus.com/"),
-            .init(label: "Billing", url: "https://github.com/settings/billing")
+            .init(label: "Dashboard", url: "https://github.com/settings/billing")
         ]
     )
 
