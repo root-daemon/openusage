@@ -22,6 +22,7 @@ jobs:
             const repo = context.repo.repo;
             const pr = context.payload.pull_request;
             const pull_number = pr.number;
+            const crypto = require("crypto");
             const maintainerAssociations = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
             const currentLabels = new Set(pr.labels.map((label) => label.name));
 
@@ -159,8 +160,8 @@ jobs:
                 },
                 {
                   match: (path) => path === "Sources/OpenUsage/App/AppContainer.swift",
-                  name: "provider ordering",
-                  keywords: ["provider order", "provider ordering", "appcontainer", "provider registry"]
+                  name: "provider registry or ordering",
+                  keywords: ["provider", "provider order", "provider ordering", "appcontainer", "provider registry"]
                 },
                 {
                   match: (path) => path === "Sources/OpenUsage/Stores/DefaultLayout.swift",
@@ -260,6 +261,25 @@ jobs:
               });
             }
 
+            function gateCommentMarker(kind, failures) {
+              const hash = crypto
+                .createHash("sha256")
+                .update(`${kind}\n${failures.join("\n")}`)
+                .digest("hex")
+                .slice(0, 16);
+              return `<!-- openusage-pr-gate:${kind}:${hash} -->`;
+            }
+
+            async function hasGateComment(marker) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: pull_number,
+                per_page: 100
+              });
+              return comments.some((existingComment) => existingComment.body?.includes(marker));
+            }
+
             await ensureLabels();
 
             if (maintainerAssociations.has(pr.author_association)) {
@@ -350,15 +370,19 @@ jobs:
               );
               const removedLabels = await removeLabels(noLongerNeeded);
               const labels = await addLabels(fixableLabels);
-              await comment([
-                "This PR needs author action before review.",
-                "",
-                ...fixableFailures.map((failure) => `- ${failure}`),
-                "",
-                "Please update the PR within 5 days. PRs still waiting on author action after that are marked stale and closed 2 days later.",
-                labels.length > 0 ? `\nLabels added: ${labels.map((label) => `\`${label}\``).join(", ")}.` : "",
-                removedLabels.length > 0 ? `\nLabels removed: ${removedLabels.map((label) => `\`${label}\``).join(", ")}.` : ""
-              ].filter(Boolean).join("\n"));
+              const marker = gateCommentMarker("fixable", fixableFailures);
+              if (labels.length > 0 || removedLabels.length > 0 || !(await hasGateComment(marker))) {
+                await comment([
+                  "This PR needs author action before review.",
+                  "",
+                  ...fixableFailures.map((failure) => `- ${failure}`),
+                  "",
+                  "Please update the PR within 5 days. PRs still waiting on author action after that are marked stale and closed 2 days later.",
+                  labels.length > 0 ? `\nLabels added: ${labels.map((label) => `\`${label}\``).join(", ")}.` : "",
+                  removedLabels.length > 0 ? `\nLabels removed: ${removedLabels.map((label) => `\`${label}\``).join(", ")}.` : "",
+                  `\n${marker}`
+                ].filter(Boolean).join("\n"));
+              }
               return;
             }
 
