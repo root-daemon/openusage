@@ -132,16 +132,19 @@ jobs:
               return issues;
             }
 
-            function approvedIssue(issues) {
-              return issues.find((issue) =>
+            function approvedIssues(issues) {
+              return issues.filter((issue) =>
                 issue.state === "open" &&
                 issue.labels.some((label) => label.name === "status:approved")
               );
             }
 
-            function sensitiveChecks(files, issue) {
-              if (!issue) return [];
-              const issueText = `${issue.title}\n${issue.body || ""}`.toLowerCase();
+            function issueText(issue) {
+              return `${issue.title}\n${issue.body || ""}`.toLowerCase();
+            }
+
+            function sensitiveChecks(files, approvedIssueList) {
+              if (approvedIssueList.length === 0) return [];
               const checks = [
                 {
                   match: (path) => path === "AGENTS.md",
@@ -183,23 +186,29 @@ jobs:
               const missing = [];
               for (const check of checks) {
                 if (!files.some((file) => check.match(file.filename))) continue;
-                if (!check.keywords.some((keyword) => issueText.includes(keyword))) {
+                const isCovered = approvedIssueList.some((issue) => {
+                  const text = issueText(issue);
+                  return check.keywords.some((keyword) => text.includes(keyword));
+                });
+                if (!isCovered) {
                   missing.push(check.name);
                 }
               }
               return missing;
             }
 
-            function hasProviderProof(files, issue) {
+            function hasProviderProof(files, approvedIssueList) {
               if (!files.some((file) => file.filename.startsWith("Sources/OpenUsage/Providers/"))) {
                 return true;
               }
-              const issueText = `${issue.title}\n${issue.body || ""}`.toLowerCase();
-              const hasDemand = issueText.includes("demand evidence") || issueText.includes("user request") || issueText.includes("community demand");
-              const hasUsageData = issueText.includes("usage data") || issueText.includes("usage metrics") || issueText.includes("quota") || issueText.includes("limit");
-              const hasFeasibility = issueText.includes("auth/api feasibility") || issueText.includes("auth method") || issueText.includes("credential") || issueText.includes("api");
-              const hasFit = issueText.includes("belong") || issueText.includes("fit with openusage") || issueText.includes("selective app") || issueText.includes("usage-tracking scope");
-              return hasDemand && hasUsageData && hasFeasibility && hasFit;
+              return approvedIssueList.some((issue) => {
+                const text = issueText(issue);
+                const hasDemand = text.includes("demand evidence") || text.includes("user request") || text.includes("community demand");
+                const hasUsageData = text.includes("usage data") || text.includes("usage metrics") || text.includes("quota") || text.includes("limit");
+                const hasFeasibility = text.includes("auth/api feasibility") || text.includes("auth method") || text.includes("credential") || text.includes("api");
+                const hasFit = text.includes("belong") || text.includes("fit with openusage") || text.includes("selective app") || text.includes("usage-tracking scope");
+                return hasDemand && hasUsageData && hasFeasibility && hasFit;
+              });
             }
 
             function isVisualChange(files) {
@@ -296,14 +305,14 @@ jobs:
             const totalChangedLines = pr.additions + pr.deletions;
             const issueNumbers = await closingIssueNumbers();
             const issues = await loadIssues(issueNumbers);
-            const approved = approvedIssue(issues);
+            const approvedIssueList = approvedIssues(issues);
 
             const hardFailures = [];
             const hardLabels = [];
             const fixableFailures = [];
             const fixableLabels = [];
 
-            if (!approved) {
+            if (approvedIssueList.length === 0) {
               hardFailures.push("External PRs require a linked open issue with `status:approved`.");
               hardLabels.push("needs-approved-issue");
             }
@@ -316,14 +325,14 @@ jobs:
               fixableLabels.push("too-large", "needs-author-action");
             }
 
-            if (approved) {
-              const missingSensitiveScopes = sensitiveChecks(files, approved);
+            if (approvedIssueList.length > 0) {
+              const missingSensitiveScopes = sensitiveChecks(files, approvedIssueList);
               if (missingSensitiveScopes.length > 0) {
                 hardFailures.push(`The approved issue does not explicitly cover these sensitive areas: ${missingSensitiveScopes.join(", ")}.`);
                 hardLabels.push("needs-approved-issue");
               }
 
-              if (!hasProviderProof(files, approved)) {
+              if (!hasProviderProof(files, approvedIssueList)) {
                 hardFailures.push("Provider changes require an approved issue with demand evidence, usage-data proof, auth/API feasibility, and fit rationale.");
                 hardLabels.push("needs-approved-issue");
               }
