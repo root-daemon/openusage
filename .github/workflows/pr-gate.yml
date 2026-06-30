@@ -23,6 +23,7 @@ jobs:
             const pr = context.payload.pull_request;
             const pull_number = pr.number;
             const maintainerAssociations = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+            const currentLabels = new Set(pr.labels.map((label) => label.name));
 
             const requiredLabels = {
               "status:approved": { color: "0e8a16", description: "Maintainer-approved issue or PR scope" },
@@ -36,6 +37,15 @@ jobs:
               "too-large": { color: "b60205", description: "PR is too large and should be split" },
               "stale": { color: "ededed", description: "No recent activity" }
             };
+            const gateManagedFailureLabels = [
+              "needs-author-action",
+              "needs-approved-issue",
+              "needs-screenshots",
+              "needs-ai-disclosure",
+              "needs-human-explanation",
+              "too-large",
+              "stale"
+            ];
 
             async function ensureLabels() {
               for (const [name, config] of Object.entries(requiredLabels)) {
@@ -160,7 +170,7 @@ jobs:
                 {
                   match: (path) => path === "Sources/OpenUsage/App/UpdaterController.swift" || path === "docs/updates.md",
                   name: "update feed",
-                  keywords: ["update", "sparkle", "appcast", "updater"]
+                  keywords: ["sparkle", "appcast", "update feed", "updatercontroller", "updater controller", "auto-update", "auto update"]
                 },
                 {
                   match: (path) => path.startsWith("Sources/OpenUsage/Providers/"),
@@ -209,8 +219,7 @@ jobs:
             }
 
             async function addLabels(labels) {
-              const current = new Set(pr.labels.map((label) => label.name));
-              const missing = [...new Set(labels)].filter((label) => !current.has(label));
+              const missing = [...new Set(labels)].filter((label) => !currentLabels.has(label));
               if (missing.length === 0) return [];
               await github.rest.issues.addLabels({
                 owner,
@@ -218,7 +227,28 @@ jobs:
                 issue_number: pull_number,
                 labels: missing
               });
+              for (const label of missing) currentLabels.add(label);
               return missing;
+            }
+
+            async function removeLabels(labels) {
+              const existing = [...new Set(labels)].filter((label) => currentLabels.has(label));
+              const removed = [];
+              for (const label of existing) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner,
+                    repo,
+                    issue_number: pull_number,
+                    name: label
+                  });
+                  currentLabels.delete(label);
+                  removed.push(label);
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+              }
+              return removed;
             }
 
             async function comment(body) {
@@ -314,18 +344,31 @@ jobs:
             }
 
             if (fixableFailures.length > 0) {
+              const desiredLabels = new Set(fixableLabels);
+              const noLongerNeeded = gateManagedFailureLabels.filter((label) =>
+                !desiredLabels.has(label) || label === "stale"
+              );
+              const removedLabels = await removeLabels(noLongerNeeded);
               const labels = await addLabels(fixableLabels);
-              if (labels.length > 0) {
-                await comment([
-                  "This PR needs author action before review.",
-                  "",
-                  ...fixableFailures.map((failure) => `- ${failure}`),
-                  "",
-                  "Please update the PR within 5 days. PRs still waiting on author action after that are marked stale and closed 2 days later.",
-                  `\nLabels added: ${labels.map((label) => `\`${label}\``).join(", ")}.`
-                ].join("\n"));
-              }
+              await comment([
+                "This PR needs author action before review.",
+                "",
+                ...fixableFailures.map((failure) => `- ${failure}`),
+                "",
+                "Please update the PR within 5 days. PRs still waiting on author action after that are marked stale and closed 2 days later.",
+                labels.length > 0 ? `\nLabels added: ${labels.map((label) => `\`${label}\``).join(", ")}.` : "",
+                removedLabels.length > 0 ? `\nLabels removed: ${removedLabels.map((label) => `\`${label}\``).join(", ")}.` : ""
+              ].filter(Boolean).join("\n"));
               return;
+            }
+
+            const removedLabels = await removeLabels(gateManagedFailureLabels);
+            if (removedLabels.length > 0) {
+              await comment([
+                "This PR now passes the external contribution gate.",
+                "",
+                `Labels removed: ${removedLabels.map((label) => `\`${label}\``).join(", ")}.`
+              ].join("\n"));
             }
 
             core.info(`PR #${pull_number} passed external PR gate.`);
