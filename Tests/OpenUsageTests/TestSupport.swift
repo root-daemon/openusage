@@ -1,6 +1,165 @@
 import XCTest
 @testable import OpenUsage
 
+/// The shipped pricing resources (supplement + LiteLLM/models.dev snapshots) as a ready-to-use
+/// `ModelPricing` — loaded once, entirely offline (no store, no network, no disk cache). Tests that
+/// price real model names use this the way production code uses `ModelPricingStore.current()`.
+enum TestPricing {
+    static let bundled: ModelPricing = {
+        func resource(_ name: String) -> Data {
+            guard let url = Bundle.openUsageResources.url(forResource: name, withExtension: "json"),
+                  let data = try? Data(contentsOf: url) else {
+                fatalError("bundled resource \(name).json missing")
+            }
+            return data
+        }
+        return ModelPricing(
+            supplement: try! PricingSupplement.decode(from: resource("pricing_supplement")),
+            primary: try! PricingCatalogCodecs.catalogFromCompact(resource("pricing_litellm_snapshot")),
+            secondary: try! PricingCatalogCodecs.catalogFromCompact(resource("pricing_models_dev_snapshot"))
+        )
+    }()
+}
+
+/// Builds throwaway Claude config dirs (`<tmp>/…/projects/<file>.jsonl`) and canned usage lines for
+/// `ClaudeLogUsageScanner` tests, plus a scanner wired to read only the fixture (never the real
+/// `~/.claude` of the machine running the tests).
+enum ClaudeLogFixture {
+    /// A temp Claude config dir whose `projects/` contains `files` (relative path → JSONL content).
+    static func makeHome(files: [String: String] = [:]) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openusage-claude-\(UUID().uuidString)", isDirectory: true)
+        let projects = root.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        for (relativePath, content) in files {
+            let url = projects.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+        return root
+    }
+
+    /// A scanner pinned to the fixture home (or to nothing when `home` is nil → "No data").
+    static func scanner(home: URL?) -> ClaudeLogUsageScanner {
+        ClaudeLogUsageScanner(
+            environment: FakeEnvironment(home.map { ["CLAUDE_CONFIG_DIR": $0.path] } ?? [:]),
+            homeDirectory: { FileManager.default.temporaryDirectory.appendingPathComponent("openusage-no-claude-home") }
+        )
+    }
+
+    /// One Claude Code usage line in the modern log shape. Pass `nil` to omit a field.
+    static func usageLine(
+        timestamp: String,
+        model: String? = "claude-sonnet-4-5-20250929",
+        input: Int = 0,
+        output: Int = 0,
+        cacheWrite: Int? = nil,
+        cacheRead: Int? = nil,
+        costUSD: Double? = nil,
+        messageID: String? = "msg_1",
+        requestID: String? = "req_1",
+        isSidechain: Bool? = nil,
+        speed: String? = nil,
+        version: String? = "1.0.24"
+    ) -> String {
+        var usage: [String: Any] = ["input_tokens": input, "output_tokens": output]
+        if let cacheWrite { usage["cache_creation_input_tokens"] = cacheWrite }
+        if let cacheRead { usage["cache_read_input_tokens"] = cacheRead }
+        if let speed { usage["speed"] = speed }
+        var message: [String: Any] = ["usage": usage]
+        if let model { message["model"] = model }
+        if let messageID { message["id"] = messageID }
+        var object: [String: Any] = ["timestamp": timestamp, "sessionId": "session-1", "message": message]
+        if let version { object["version"] = version }
+        if let requestID { object["requestId"] = requestID }
+        if let costUSD { object["costUSD"] = costUSD }
+        if let isSidechain { object["isSidechain"] = isSidechain }
+        let data = try! JSONSerialization.data(withJSONObject: object)
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
+/// Builds throwaway Codex homes (`<tmp>/…/sessions/<file>.jsonl`) and canned rollout lines for
+/// `CodexLogUsageScanner` tests, plus a scanner pinned to the fixture (never the real `~/.codex`).
+enum CodexLogFixture {
+    /// A temp Codex home whose `sessions/` (or another top-level dir) contains `files`
+    /// (relative path → JSONL content).
+    static func makeHome(files: [String: String] = [:]) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openusage-codex-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("sessions"), withIntermediateDirectories: true
+        )
+        for (relativePath, content) in files {
+            let url = root.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+        return root
+    }
+
+    /// A scanner pinned to the fixture home (or to nothing when `home` is nil → "No data").
+    static func scanner(home: URL?) -> CodexLogUsageScanner {
+        CodexLogUsageScanner(
+            environment: FakeEnvironment(home.map { ["CODEX_HOME": $0.path] } ?? [:]),
+            homeDirectory: { FileManager.default.temporaryDirectory.appendingPathComponent("openusage-no-codex-home") }
+        )
+    }
+
+    /// A `turn_context` line carrying the session's active model.
+    static func turnContext(timestamp: String, model: String) -> String {
+        jsonLine([
+            "timestamp": timestamp,
+            "type": "turn_context",
+            "payload": ["model": model]
+        ])
+    }
+
+    /// An `event_msg`/`token_count` line. Pass `last` for the turn delta and/or `totals` for the
+    /// cumulative counter; either may be omitted like in real rollouts.
+    static func tokenCount(
+        timestamp: String,
+        last: [String: Int]? = nil,
+        totals: [String: Int]? = nil,
+        model: String? = nil
+    ) -> String {
+        var info: [String: Any] = [:]
+        if let last { info["last_token_usage"] = last }
+        if let totals { info["total_token_usage"] = totals }
+        if let model { info["model"] = model }
+        return jsonLine([
+            "timestamp": timestamp,
+            "type": "event_msg",
+            "payload": ["type": "token_count", "info": info]
+        ])
+    }
+
+    /// Token-count dictionary in the rollout shape.
+    static func usage(input: Int, cached: Int = 0, output: Int, reasoning: Int = 0) -> [String: Int] {
+        [
+            "input_tokens": input,
+            "cached_input_tokens": cached,
+            "output_tokens": output,
+            "reasoning_output_tokens": reasoning,
+            "total_tokens": input + output
+        ]
+    }
+
+    /// A `session_meta` line marking the file as a `thread_spawn` subagent session.
+    static func subagentSessionMeta(timestamp: String) -> String {
+        jsonLine([
+            "timestamp": timestamp,
+            "type": "session_meta",
+            "payload": ["id": "subagent-abc", "source": ["subagent": ["thread_spawn": ["parent_thread_id": "parent-xyz"]]]]
+        ])
+    }
+
+    private static func jsonLine(_ object: [String: Any]) -> String {
+        let data = try! JSONSerialization.data(withJSONObject: object)
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
 /// Shared test doubles used across provider and store tests.
 struct FakeEnvironment: EnvironmentReading {
     var values: [String: String]
@@ -91,29 +250,6 @@ final class FakeHTTPClient: HTTPClient, @unchecked Sendable {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         requests.append(request)
         return response
-    }
-}
-
-final class FakeProcessRunner: ProcessRunning, @unchecked Sendable {
-    var lastCcusageEnvironment: [String: String]?
-
-    func run(
-        executable: String,
-        arguments: [String],
-        environment: [String: String],
-        timeout: TimeInterval
-    ) throws -> ProcessResult {
-        if arguments == ["--version"] {
-            return ProcessResult(exitCode: 0, stdout: "1.0.0\n", stderr: "")
-        }
-        lastCcusageEnvironment = environment
-        return ProcessResult(
-            exitCode: 0,
-            stdout: """
-            { "daily": [{ "date": "2026-02-20", "totalTokens": 150, "totalCost": 0.25 }] }
-            """,
-            stderr: ""
-        )
     }
 }
 

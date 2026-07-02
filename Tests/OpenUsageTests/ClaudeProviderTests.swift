@@ -296,14 +296,20 @@ final class ClaudeUsageMapperTests: XCTestCase {
 
 @MainActor
 final class ClaudeProviderTests: XCTestCase {
-    func testRefreshFetchesLiveUsageAndPassesConfigDirToCcusage() async {
+    func testRefreshFetchesLiveUsageAndScansConfigDirLogs() async throws {
         let now = OpenUsageISO8601.date(from: "2026-02-20T16:00:00.000Z")!
         let httpClient = FakeHTTPClient(response: HTTPResponse(
             statusCode: 200,
             headers: [:],
             body: Data(#"{"five_hour":{"utilization":25,"resets_at":"2099-01-01T00:00:00.000Z"}}"#.utf8)
         ))
-        let processRunner = FakeProcessRunner()
+        // The spend tiles come from the scanner reading `CLAUDE_CONFIG_DIR/projects/**/*.jsonl` —
+        // the fixture line carries costUSD so the tile is a carried (not computed) dollar figure.
+        let home = try ClaudeLogFixture.makeHome(files: [
+            "project-a/session.jsonl": ClaudeLogFixture.usageLine(
+                timestamp: "2026-02-20T16:00:00.000Z", input: 100, output: 50, costUSD: 0.25
+            )
+        ])
         let provider = ClaudeProvider(
             authStore: ClaudeAuthStore(
                 environment: FakeEnvironment(["CLAUDE_CONFIG_DIR": "/tmp/claude"]),
@@ -314,11 +320,9 @@ final class ClaudeProviderTests: XCTestCase {
                 now: { now }
             ),
             usageClient: ClaudeUsageClient(httpClient: httpClient),
-            ccusageRunner: CcusageRunner(
-                processRunner: processRunner,
-                homeDirectory: { URL(fileURLWithPath: "/Users/test") }
-            ),
-            now: { now }
+            logUsageScanner: ClaudeLogFixture.scanner(home: home),
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -328,22 +332,26 @@ final class ClaudeProviderTests: XCTestCase {
         XCTAssertEqual(values(snapshot.lines, "Today"),
                        [MetricValue(number: 0.25, kind: .dollars, estimated: true),
                         MetricValue(number: 150, kind: .count, label: "tokens")])
-        XCTAssertEqual(processRunner.lastCcusageEnvironment?["CLAUDE_CONFIG_DIR"], "/tmp/claude")
         XCTAssertTrue(httpClient.requests.contains { $0.url.absoluteString == "https://api.anthropic.com/api/oauth/usage" })
     }
 
-    func testInferenceOnlyScopeSurfacesReloginWarningAndSkipsUsageCallButKeepsSpendTiles() async {
+    func testInferenceOnlyScopeSurfacesReloginWarningAndSkipsUsageCallButKeepsSpendTiles() async throws {
         // A credential that authenticates for inference but lacks the `user:profile` scope (e.g. a
         // `claude setup-token` token) can't read the usage endpoint. The provider must NOT silently leave
         // Session/Weekly blank: it surfaces a soft provider warning (the header's amber triangle, like
         // Z.ai's "no coding plan" notice) telling the user to re-login, skips the usage HTTP call, and
-        // still loads the local ccusage spend tiles.
+        // still loads the local log-scanned spend tiles.
         let now = OpenUsageISO8601.date(from: "2026-02-20T16:00:00.000Z")!
         let httpClient = FakeHTTPClient(response: HTTPResponse(
             statusCode: 200,
             headers: [:],
             body: Data(#"{"five_hour":{"utilization":25,"resets_at":"2099-01-01T00:00:00.000Z"}}"#.utf8)
         ))
+        let home = try ClaudeLogFixture.makeHome(files: [
+            "project-a/session.jsonl": ClaudeLogFixture.usageLine(
+                timestamp: "2026-02-20T16:00:00.000Z", input: 100, output: 50, costUSD: 0.25
+            )
+        ])
         let provider = ClaudeProvider(
             authStore: ClaudeAuthStore(
                 environment: FakeEnvironment(["CLAUDE_CONFIG_DIR": "/tmp/claude"]),
@@ -354,11 +362,9 @@ final class ClaudeProviderTests: XCTestCase {
                 now: { now }
             ),
             usageClient: ClaudeUsageClient(httpClient: httpClient),
-            ccusageRunner: CcusageRunner(
-                processRunner: FakeProcessRunner(),
-                homeDirectory: { URL(fileURLWithPath: "/Users/test") }
-            ),
-            now: { now }
+            logUsageScanner: ClaudeLogFixture.scanner(home: home),
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -438,11 +444,9 @@ final class ClaudeProviderTests: XCTestCase {
                 now: { now }
             ),
             usageClient: ClaudeUsageClient(httpClient: httpClient),
-            ccusageRunner: CcusageRunner(
-                processRunner: FakeProcessRunner(),
-                homeDirectory: { URL(fileURLWithPath: "/Users/test") }
-            ),
-            now: { now }
+            logUsageScanner: ClaudeLogFixture.scanner(home: nil),
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -495,11 +499,9 @@ final class ClaudeProviderTests: XCTestCase {
         let provider = ClaudeProvider(
             authStore: authStore,
             usageClient: ClaudeUsageClient(httpClient: httpClient),
-            ccusageRunner: CcusageRunner(
-                processRunner: FakeProcessRunner(),
-                homeDirectory: { URL(fileURLWithPath: "/Users/test") }
-            ),
-            now: { now }
+            logUsageScanner: ClaudeLogFixture.scanner(home: nil),
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -538,11 +540,9 @@ final class ClaudeProviderTests: XCTestCase {
         let provider = ClaudeProvider(
             authStore: authStore,
             usageClient: ClaudeUsageClient(httpClient: httpClient),
-            ccusageRunner: CcusageRunner(
-                processRunner: FakeProcessRunner(),
-                homeDirectory: { URL(fileURLWithPath: "/Users/test") }
-            ),
-            now: { now }
+            logUsageScanner: ClaudeLogFixture.scanner(home: nil),
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -567,11 +567,9 @@ final class ClaudeProviderTests: XCTestCase {
                 now: { now }
             ),
             usageClient: ClaudeUsageClient(httpClient: httpClient),
-            ccusageRunner: CcusageRunner(
-                processRunner: FakeProcessRunner(),
-                homeDirectory: { URL(fileURLWithPath: "/Users/test") }
-            ),
-            now: { now }
+            logUsageScanner: ClaudeLogFixture.scanner(home: nil),
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -610,11 +608,9 @@ final class ClaudeProviderTests: XCTestCase {
                 now: { clock.now }
             ),
             usageClient: ClaudeUsageClient(httpClient: httpClient),
-            ccusageRunner: CcusageRunner(
-                processRunner: FakeProcessRunner(),
-                homeDirectory: { URL(fileURLWithPath: "/Users/test") }
-            ),
-            now: { clock.now }
+            logUsageScanner: ClaudeLogFixture.scanner(home: nil),
+            now: { clock.now },
+            pricing: { TestPricing.bundled }
         )
 
         // 1) Live fetch succeeds and is cached.
@@ -656,11 +652,9 @@ final class ClaudeProviderTests: XCTestCase {
                 now: { now }
             ),
             usageClient: ClaudeUsageClient(httpClient: httpClient),
-            ccusageRunner: CcusageRunner(
-                processRunner: FakeProcessRunner(),
-                homeDirectory: { URL(fileURLWithPath: "/Users/test") }
-            ),
-            now: { now }
+            logUsageScanner: ClaudeLogFixture.scanner(home: nil),
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()

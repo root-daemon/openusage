@@ -113,6 +113,29 @@ final class CodexUsageMapperTests: XCTestCase {
         XCTAssertEqual(progress(mapped.lines, "Session")?.used, 0)
     }
 
+    func testFreshSessionWindowSurvivesFetchLatency() throws {
+        // Real-world shape: Codex stamps `reset_at` server-side at request time, so by the time the
+        // mapper runs (network latency + the reset-credits round trip) the reset is already a few
+        // seconds short of a full period. The old 1-second tolerance failed here, letting the floored
+        // `used_percent: 1` through — the row then read "99% left" forever on an untouched account.
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let body = Data("""
+        {
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 1,
+              "limit_window_seconds": 18000,
+              "reset_after_seconds": 18000,
+              "reset_at": \(Int(now.timeIntervalSince1970) + 18000 - 5)
+            }
+          }
+        }
+        """.utf8)
+        let response = HTTPResponse(statusCode: 200, headers: [:], body: body)
+        let mapped = try CodexUsageMapper.mapUsageResponse(response, now: now)
+        XCTAssertEqual(progress(mapped.lines, "Session")?.used, 0)
+    }
+
     func testFreshSessionWindowUsesDefaultPeriodWhenLimitWindowIsMissing() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let resetAfterSeconds = CodexUsageMapper.sessionPeriodMs / 1000
@@ -589,10 +612,19 @@ final class CodexUsageMapperTests: XCTestCase {
 
 @MainActor
 final class CodexProviderTests: XCTestCase {
-    func testNoUsageDataBadgeIsDroppedWhenCcusageHasSpend() async {
+    func testNoUsageDataBadgeIsDroppedWhenLocalLogsHaveSpend() async throws {
         let now = OpenUsageISO8601.date(from: "2026-02-20T16:00:00.000Z")!
         // The live usage API returns nothing mappable (empty body -> no metric lines)...
         let httpClient = FakeHTTPClient(response: HTTPResponse(statusCode: 200, headers: [:], body: Data("{}".utf8)))
+        let home = try CodexLogFixture.makeHome(files: [
+            "sessions/rollout-1.jsonl": [
+                CodexLogFixture.turnContext(timestamp: "2026-02-20T14:00:00.000Z", model: "gpt-5.2"),
+                CodexLogFixture.tokenCount(
+                    timestamp: "2026-02-20T14:01:00.000Z",
+                    last: CodexLogFixture.usage(input: 100, output: 50)
+                )
+            ].joined(separator: "\n")
+        ])
         let provider = CodexProvider(
             authStore: CodexAuthStore(
                 environment: FakeEnvironment(["CODEX_HOME": "/tmp/codex-home"]),
@@ -600,17 +632,25 @@ final class CodexProviderTests: XCTestCase {
                 keychain: FakeKeychain()
             ),
             usageClient: CodexUsageClient(http: httpClient),
-            ccusageRunner: CcusageRunner(
-                processRunner: FakeProcessRunner(),
-                homeDirectory: { URL(fileURLWithPath: "/Users/test") }
-            ),
-            now: { now }
+            logUsageScanner: CodexLogFixture.scanner(home: home),
+            now: { now },
+            pricing: {
+                // 150 tokens -> $0.25 at these fixture rates: (100 x 1000 + 50 x 3000) / 1M.
+                ModelPricing(
+                    supplement: PricingSupplement(),
+                    primary: PricingCatalog(entries: ["gpt-5.2": ModelRates(
+                        inputPerMillion: 1000, outputPerMillion: 3000,
+                        cacheWritePerMillion: 1000, cacheReadPerMillion: 100
+                    )]),
+                    secondary: PricingCatalog(entries: [:])
+                )
+            }
         )
 
         let snapshot = await provider.refresh()
 
-        // ...but local ccusage spend exists, so the snapshot shows the spend lines and NOT the
-        // "No usage data" badge. Regression: the mapper used to append the badge *before* the ccusage
+        // ...but local scanned spend exists, so the snapshot shows the spend lines and NOT the
+        // "No usage data" badge. Regression: the mapper used to append the badge *before* the spend
         // lines, leaving a contradictory badge-plus-spend snapshot.
         XCTAssertEqual(values(snapshot.lines, "Today"),
                        [MetricValue(number: 0.25, kind: .dollars, estimated: true),

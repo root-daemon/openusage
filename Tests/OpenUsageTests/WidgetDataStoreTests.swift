@@ -472,7 +472,7 @@ final class WidgetDataStoreTests: XCTestCase {
         )
         let registry = WidgetRegistry(providers: [provider], descriptors: descriptors)
         let cache = ProviderSnapshotCache(
-            userDefaults: makeUserDefaults("ccusage-estimate"),
+            userDefaults: makeUserDefaults("local-estimate"),
             storageKey: "snapshots",
             ttl: 600,
             now: { Date() }
@@ -484,7 +484,7 @@ final class WidgetDataStoreTests: XCTestCase {
         let costData = store.data(for: cost)
         XCTAssertEqual(costData.valueText, "$478.00")
         XCTAssertEqual(costData.unboundedDetail, "$478.00 spent")
-        XCTAssertEqual(costData.infoNote, WidgetData.ccusageEstimateNote)
+        XCTAssertEqual(costData.infoNote, WidgetData.localEstimateNote)
 
         // Tokens-only: the measured count with its "tokens" unit; the tooltip has every digit.
         let tokenData = store.data(for: tokens)
@@ -498,13 +498,13 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertEqual(combinedData.unboundedDetail, "$478.00 · 891K tokens")
         XCTAssertEqual(combinedData.menuBarValue, "$478")
         XCTAssertEqual(combinedData.unboundedTooltip, "$478.00 · 891,000 tokens")
-        XCTAssertEqual(combinedData.infoNote, WidgetData.ccusageEstimateNote)
+        XCTAssertEqual(combinedData.infoNote, WidgetData.localEstimateNote)
 
         // Labels are inert. The value hover carries exact figures plus the source note.
         XCTAssertNil(combinedData.unboundedLabelTooltip)
-        XCTAssertEqual(combinedData.unboundedValueTooltip, "$478.00 · 891,000 tokens\n\(WidgetData.ccusageEstimateNote)")
+        XCTAssertEqual(combinedData.unboundedValueTooltip, "$478.00 · 891,000 tokens\n\(WidgetData.localEstimateNote)")
         XCTAssertNil(costData.unboundedLabelTooltip)
-        XCTAssertEqual(costData.unboundedValueTooltip, "$478.00\n\(WidgetData.ccusageEstimateNote)")
+        XCTAssertEqual(costData.unboundedValueTooltip, "$478.00\n\(WidgetData.localEstimateNote)")
         // The measured tokens tile has no source note, so it has only the exact-number value hover.
         XCTAssertNil(tokenData.infoNote)
         XCTAssertNil(tokenData.unboundedLabelTooltip)

@@ -2,8 +2,8 @@ import Foundation
 
 /// Builds daily token/cost estimates for Grok from the Grok CLI's local log.
 ///
-/// Unlike Claude/Codex (whose spend tiles shell out to `ccusage`), Grok's token data lives in a
-/// single global append-only log, `~/.grok/logs/unified.jsonl`, on `shell.turn.inference_done` lines.
+/// Like the Claude/Codex scanners but simpler: Grok's token data lives in a single global
+/// append-only log, `~/.grok/logs/unified.jsonl`, on `shell.turn.inference_done` lines.
 /// Those lines carry token counts but no model id, so the scanner attributes each row to a model by
 /// tracking the "current model" per CLI process (`pid`) from the model-change events the CLI also
 /// logs. The output is the same `DailyUsageSeries` shape the Claude/Codex spend tiles consume, so it
@@ -37,14 +37,13 @@ struct GrokLogUsageScanner: Sendable {
     /// usable token rows in the window.
     ///
     /// `async` and nonisolated (this is a plain `Sendable` struct, not `@MainActor`), so the whole-file
-    /// read + parse runs off the main actor when a `@MainActor` provider `await`s it — the same way
-    /// `CcusageRunner.query` keeps Claude/Codex's log work off the UI thread.
-    func scan(daysBack: Int = 30, now: Date = Date()) async -> DailyUsageSeries? {
+    /// read + parse runs off the main actor when a `@MainActor` provider `await`s it.
+    func scan(daysBack: Int = 30, now: Date = Date(), pricing: ModelPricing) async -> DailyUsageSeries? {
         let path = logPath
         guard files.exists(path), let text = try? files.readText(path) else {
             return nil
         }
-        return Self.parse(text, since: sinceDate(daysBack: daysBack, now: now))
+        return Self.parse(text, since: sinceDate(daysBack: daysBack, now: now), pricing: pricing)
     }
 
     private func sinceDate(daysBack: Int, now: Date) -> Date {
@@ -56,7 +55,7 @@ struct GrokLogUsageScanner: Sendable {
     /// "current model" (tracked regardless of date, so a session straddling the `since` boundary stays
     /// attributed); each in-window `inference_done` row is priced against its `pid`'s current model and
     /// bucketed by local calendar day.
-    static func parse(_ text: String, since: Date) -> DailyUsageSeries {
+    static func parse(_ text: String, since: Date, pricing: ModelPricing) -> DailyUsageSeries {
         var modelByPID: [Int: String] = [:]
         var tokensByDay: [String: Int] = [:]
         var costByDay: [String: Double] = [:]
@@ -96,22 +95,14 @@ struct GrokLogUsageScanner: Sendable {
             let day = dayKey(from: timestamp)
             tokensByDay[day, default: 0] += Int(promptTokens) + output
 
-            // Grok's token rows lack a model id; attribute via the row's process. Known-but-unpriced or
+            // Grok's token rows lack a model id; attribute via the row's process. Unpriceable or
             // unattributed rows contribute 0 and leave the day's cost `nil` only if *no* row was priced.
             guard let model = pid.flatMap({ modelByPID[$0] }),
-                  CursorPricing.pricingEntry(for: model) != nil
+                  let cost = pricing.estimatedCostDollars(
+                      model: model,
+                      tokens: TokenBreakdown(input: inputNoCache, cacheRead: cacheRead, output: output)
+                  )
             else { return }
-
-            let cost = CursorPricing.estimatedCostDollars(
-                model: model,
-                maxMode: false,
-                tokens: CursorTokenUsage(
-                    inputCacheWrite: 0,
-                    inputNoCacheWrite: inputNoCache,
-                    cacheRead: cacheRead,
-                    output: output
-                )
-            )
             costByDay[day, default: 0] += cost
             pricedDays.insert(day)
         }

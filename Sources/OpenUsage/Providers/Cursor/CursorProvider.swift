@@ -15,24 +15,27 @@ final class CursorProvider: ProviderRuntime {
     let authStore: CursorAuthStore
     let usageClient: CursorUsageClient
     let now: @Sendable () -> Date
+    let pricing: @Sendable () async -> ModelPricing
 
     init(
         authStore: CursorAuthStore = CursorAuthStore(),
         usageClient: CursorUsageClient = CursorUsageClient(),
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        pricing: @escaping @Sendable () async -> ModelPricing = { await ModelPricingStore.shared.current() }
     ) {
         self.authStore = authStore
         self.usageClient = usageClient
         self.now = now
+        self.pricing = pricing
     }
 
     /// Cursor's usage-events CSV export (the source for the spend tiles + usage trend) had lagged real
     /// time by ~12h+ in June 2026, so spend tracking was disabled for a stretch (issue #758). It is back
     /// on: the spend tiles (Today / Yesterday / Last 30 Days) and the token trend are imputed from the CSV
-    /// via `CursorUsageCSV`, `CursorPricing`, the bundled manifest, and `CursorUsageMapper.appendSpendLines`,
+    /// via `CursorUsageCSV`, the shared `ModelPricingStore`, and `CursorUsageMapper.appendSpendLines`,
     /// and the `cursor.today/yesterday/last30/trend` descriptors surface in the layout again. Spend that
-    /// uses a model the bundled pricing manifest doesn't know prices to $0, so each affected period's tile
-    /// carries the unknown model names for the warning triangle (see `appendSpendLines`).
+    /// uses a model no pricing source knows prices to $0, so each affected period's tile carries the
+    /// unknown model names for the warning triangle (see `appendSpendLines`).
     static let spendTrackingEnabled = true
 
     var widgetDescriptors: [WidgetDescriptor] {
@@ -157,7 +160,7 @@ final class CursorProvider: ProviderRuntime {
         else {
             return
         }
-        let rows = CursorUsageCSV.parse(csv: csv)
+        let rows = CursorUsageCSV.parse(csv: csv, pricing: await pricing())
         CursorUsageMapper.appendSpendLines(rows: rows, now: end, to: &lines)
     }
 

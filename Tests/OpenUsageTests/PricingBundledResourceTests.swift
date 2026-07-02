@@ -1,0 +1,121 @@
+import XCTest
+@testable import OpenUsage
+
+/// Guards the shipped pricing resources: the bundled supplement and snapshots must load, and every
+/// alias canonical must resolve against them — so a LiteLLM/models.dev key rename or a supplement
+/// typo fails CI instead of silently pricing models at $0.
+final class PricingBundledResourceTests: XCTestCase {
+    private static let pricing = TestPricing.bundled
+
+    func testBundledResourcesLoadAndAreNonTrivial() {
+        let pricing = Self.pricing
+        XCTAssertGreaterThan(pricing.primary.entries.count, 500, "LiteLLM snapshot suspiciously small")
+        XCTAssertGreaterThan(pricing.secondary.entries.count, 500, "models.dev snapshot suspiciously small")
+        XCTAssertFalse(pricing.supplement.pricing.isEmpty)
+        XCTAssertFalse(pricing.supplement.aliasRules.isEmpty)
+    }
+
+    func testEveryAliasCanonicalResolves() {
+        let pricing = Self.pricing
+        for rule in pricing.supplement.aliasRules {
+            XCTAssertNotNil(
+                pricing.resolve(model: rule.canonical),
+                "alias canonical '\(rule.canonical)' resolves against no pricing source"
+            )
+        }
+    }
+
+    func testEveryFastMultiplierBaseResolves() {
+        let pricing = Self.pricing
+        for base in Self.pricing.supplement.fastMultipliers.keys {
+            XCTAssertNotNil(pricing.resolve(model: base), "fast-multiplier base '\(base)' resolves nowhere")
+        }
+    }
+
+    /// Spot-check Cursor CSV slugs end to end against known rates (the old manifest's assertions,
+    /// now against live catalogs — update the constants if the providers themselves reprice).
+    func testKnownCursorSlugsPriceCorrectly() {
+        let pricing = Self.pricing
+        XCTAssertEqual(pricing.resolve(model: "auto")?.inputPerMillion, 1.25)
+        XCTAssertEqual(pricing.resolve(model: "claude-4.5-sonnet-thinking")?.inputPerMillion, 3)
+        XCTAssertEqual(pricing.resolve(model: "claude-4.6-opus-max-thinking")?.inputPerMillion, 5)
+        XCTAssertEqual(pricing.resolve(model: "claude-4.6-opus-max-thinking-fast")?.inputPerMillion, 30)
+        XCTAssertEqual(pricing.resolve(model: "gpt-5.5-xhigh-fast")?.inputPerMillion, 12.5)
+        XCTAssertEqual(pricing.resolve(model: "grok-4-20-thinking")?.inputPerMillion, 2)
+        XCTAssertEqual(pricing.resolve(model: "kimi-k2p5")?.inputPerMillion, 0.6)
+        XCTAssertEqual(pricing.resolve(model: "glm-5.2-max")?.inputPerMillion, 1.4)
+        XCTAssertEqual(pricing.resolve(model: "github_bugbot")?.outputPerMillion, 30)
+        XCTAssertEqual(pricing.resolve(model: "Premium (GPT-5.3-Codex)")?.inputPerMillion, 1.75)
+    }
+
+    /// Raw model ids as they appear in Claude/Codex/Grok logs (no alias rewriting).
+    func testKnownLogModelIDsPriceCorrectly() {
+        let pricing = Self.pricing
+        XCTAssertEqual(pricing.resolve(model: "claude-sonnet-4-5-20250929")?.inputPerMillion, 3)
+        XCTAssertEqual(pricing.resolve(model: "claude-opus-4-1-20250805")?.inputPerMillion, 15)
+        XCTAssertNotNil(pricing.resolve(model: "gpt-5.1-codex"))
+        XCTAssertEqual(pricing.resolve(model: "grok-build-0.1")?.inputPerMillion, 1)
+        XCTAssertEqual(pricing.resolve(model: "grok-4.3")?.inputPerMillion, 1.25)
+    }
+
+    /// Claude Fable 5 (carried over from the old manifest tests): priced at 2x standard Claude 4.8
+    /// Opus, with thinking/effort slug variants resolving to the same rates.
+    func testClaudeFable5PricingAndAliases() throws {
+        let pricing = Self.pricing
+        let fable = try XCTUnwrap(pricing.resolve(model: "claude-fable-5-thinking"))
+        XCTAssertEqual(pricing.resolve(model: "claude-fable-5-thinking-xhigh"), fable)
+        XCTAssertEqual(fable.inputPerMillion, 10.0)
+        XCTAssertEqual(fable.outputPerMillion, 50.0)
+
+        let opus48 = try XCTUnwrap(pricing.resolve(model: "claude-opus-4-8"))
+        XCTAssertEqual(fable.inputPerMillion, opus48.inputPerMillion * 2)
+        XCTAssertEqual(fable.outputPerMillion, opus48.outputPerMillion * 2)
+    }
+
+    /// Claude Sonnet 5: same API pool rates as Claude 4.6 Sonnet; thinking/effort slugs resolve to
+    /// one canonical entry.
+    func testClaudeSonnet5PricingAndAliases() throws {
+        let pricing = Self.pricing
+        let sonnet5 = try XCTUnwrap(pricing.resolve(model: "claude-sonnet-5-thinking-high"))
+        XCTAssertEqual(sonnet5.inputPerMillion, 3.0)
+        XCTAssertEqual(sonnet5.outputPerMillion, 15.0)
+        XCTAssertEqual(sonnet5.cacheWritePerMillion, 3.75)
+        XCTAssertEqual(sonnet5.cacheReadPerMillion, 0.3)
+
+        let sonnet46 = try XCTUnwrap(pricing.resolve(model: "claude-4.6-sonnet"))
+        XCTAssertEqual(sonnet5.inputPerMillion, sonnet46.inputPerMillion)
+        XCTAssertEqual(sonnet5.outputPerMillion, sonnet46.outputPerMillion)
+    }
+
+    /// GLM 5.2: the high/max effort slugs resolve to the shared entry (LiteLLM's Cloudflare listing);
+    /// no separate cache-write price, so cache writes bill at the input rate. Slugs outside the
+    /// high/max allowlist stay unpriced.
+    func testGLM52PricingAndAliases() throws {
+        let pricing = Self.pricing
+        let glm = try XCTUnwrap(pricing.resolve(model: "glm-5.2-max"))
+        XCTAssertEqual(glm.inputPerMillion, 1.4)
+        XCTAssertEqual(glm.cacheWritePerMillion, 1.4)
+        XCTAssertEqual(glm.cacheReadPerMillion, 0.26)
+        XCTAssertEqual(glm.outputPerMillion, 4.4)
+
+        let outputOnly = TokenBreakdown(output: 1_000_000)
+        XCTAssertEqual(pricing.estimatedCostDollars(model: "glm-5.2-high", tokens: outputOnly)!, 4.4, accuracy: 1e-9)
+        XCTAssertNil(pricing.estimatedCostDollars(model: "glm-5.2-bogus", tokens: outputOnly))
+    }
+
+    /// Grok CLI model ids route through the alias rules to their catalog entries.
+    func testGrokCLIModelAliases() {
+        let pricing = Self.pricing
+        XCTAssertEqual(pricing.resolve(model: "grok-build")?.inputPerMillion, 1)
+        XCTAssertEqual(pricing.resolve(model: "grok-composer-2.5-fast")?.inputPerMillion, 3)
+    }
+
+    func testCostSumsAllBucketsAndUnpricedIsNil() throws {
+        let pricing = Self.pricing
+        let entry = try XCTUnwrap(pricing.resolve(model: "composer-1"))
+        let tokens = TokenBreakdown(input: 1_000_000, cacheWrite5m: 1_000_000, cacheRead: 1_000_000, output: 1_000_000)
+        let expected = entry.inputPerMillion + entry.cacheWritePerMillion + entry.cacheReadPerMillion + entry.outputPerMillion
+        XCTAssertEqual(pricing.estimatedCostDollars(model: "composer-1", tokens: tokens)!, expected, accuracy: 1e-9)
+        XCTAssertNil(pricing.estimatedCostDollars(model: "nope", tokens: tokens))
+    }
+}

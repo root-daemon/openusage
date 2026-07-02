@@ -28,7 +28,9 @@ let package = Package(
             path: "Sources/OpenUsage",
             resources: [
                 .copy("Resources/ProviderIcons"),
-                .copy("Resources/model_manifest.json")
+                .copy("Resources/pricing_supplement.json"),
+                .copy("Resources/pricing_litellm_snapshot.json"),
+                .copy("Resources/pricing_models_dev_snapshot.json")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)

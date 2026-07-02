@@ -97,7 +97,7 @@ enum CodexUsageMapper {
             lines.append(.values(label: "Credits", values: creditValues(remaining: remaining)))
         }
 
-        // The "no usage data" badge is appended by `CodexProvider.probe` *after* the ccusage spend
+        // The "no usage data" badge is appended by `CodexProvider.probe` *after* the scanned spend
         // lines, so an empty live response never yields a badge that coexists with Today/Yesterday.
         return CodexMappedUsage(plan: formatCodexPlan(body["plan_type"]), lines: lines)
     }

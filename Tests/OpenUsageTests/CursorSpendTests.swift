@@ -34,108 +34,19 @@ final class CursorCSVParserTests: XCTestCase {
         let csv = """
         Date,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Cost
         2026-01-01T00:00:00Z,composer-1,No,0,0,0,1000000,Included
+        2026-01-01T00:00:00Z,totally-unknown-model-xyz,No,0,100,0,0,Included
         ,skipped-no-date,No,0,0,0,0,Included
         """
-        let rows = CursorUsageCSV.parse(csv: csv)
+        let rows = CursorUsageCSV.parse(csv: csv, pricing: TestPricing.bundled)
 
-        XCTAssertEqual(rows.count, 1) // the dateless row is skipped
+        XCTAssertEqual(rows.count, 2) // the dateless row is skipped
         XCTAssertEqual(rows[0].model, "composer-1")
         XCTAssertEqual(rows[0].tokens.output, 1_000_000)
         // composer-1 output is $10/M → 1M output = $10.
-        XCTAssertEqual(rows[0].imputedCostDollars, 10.0, accuracy: 1e-9)
-    }
-}
-
-// MARK: - Manifest + pricing
-
-final class CursorPricingTests: XCTestCase {
-    func testBundledManifestLoadsAndResolvesKnownAlias() {
-        XCTAssertFalse(CursorPricing.manifest.isEmpty, "model_manifest.json should load from Bundle.module")
-        // A thinking variant resolves to its canonical entry via the alias rules.
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "claude-4.5-sonnet-thinking"), "claude-4.5-sonnet")
-        XCTAssertNotNil(CursorPricing.pricingEntry(for: "claude-4.5-sonnet-thinking"))
-    }
-
-    func testUnknownModelHasNoPricing() {
-        XCTAssertNil(CursorPricing.canonicalModel(for: "totally-unknown-model-xyz"))
-        XCTAssertNil(CursorPricing.pricingEntry(for: "totally-unknown-model-xyz"))
-    }
-
-    /// Synced from cursorcat (manifest 2026-06-09): Claude Fable 5 is priced at 2x standard
-    /// Claude 4.8 Opus — the same rate as the 4.8 Opus fast tier — and its thinking/effort
-    /// slug variants all resolve to the one canonical entry.
-    func testClaudeFable5PricingAndAliases() throws {
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "claude-fable-5"), "claude-fable-5")
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "claude-fable-5-thinking-xhigh"), "claude-fable-5")
-
-        let fable = try XCTUnwrap(CursorPricing.pricingEntry(for: "claude-fable-5-thinking"))
-        XCTAssertEqual(fable.familyDisplayName, "Claude Fable 5")
-        XCTAssertEqual(fable.inputPerMillion, 10.0)
-        XCTAssertEqual(fable.cacheWritePerMillion, 12.5)
-        XCTAssertEqual(fable.cacheReadPerMillion, 1.0)
-        XCTAssertEqual(fable.outputPerMillion, 50.0)
-
-        let opus48 = try XCTUnwrap(CursorPricing.pricingEntry(for: "claude-opus-4-8"))
-        XCTAssertEqual(fable.inputPerMillion, opus48.inputPerMillion * 2)
-        XCTAssertEqual(fable.cacheWritePerMillion, opus48.cacheWritePerMillion * 2)
-        XCTAssertEqual(fable.cacheReadPerMillion, opus48.cacheReadPerMillion * 2)
-        XCTAssertEqual(fable.outputPerMillion, opus48.outputPerMillion * 2)
-    }
-
-    /// Claude Sonnet 5 (2026-07-01): same API pool rates as Claude 4.6 Sonnet; thinking/effort slugs
-    /// resolve to one canonical entry. Cursor's page notes a launch promo ($2/$10 per M) through Aug 2026;
-    /// imputation uses the listed API rates ($3/$15) like other Sonnet rows.
-    func testClaudeSonnet5PricingAndAliases() throws {
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "claude-sonnet-5"), "claude-sonnet-5")
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "claude-sonnet-5-thinking-high"), "claude-sonnet-5")
-
-        let sonnet5 = try XCTUnwrap(CursorPricing.pricingEntry(for: "claude-sonnet-5"))
-        XCTAssertEqual(sonnet5.familyDisplayName, "Claude Sonnet 5")
-        XCTAssertEqual(sonnet5.inputPerMillion, 3.0)
-        XCTAssertEqual(sonnet5.cacheWritePerMillion, 3.75)
-        XCTAssertEqual(sonnet5.cacheReadPerMillion, 0.3)
-        XCTAssertEqual(sonnet5.outputPerMillion, 15.0)
-
-        let sonnet46 = try XCTUnwrap(CursorPricing.pricingEntry(for: "claude-4.6-sonnet"))
-        XCTAssertEqual(sonnet5.inputPerMillion, sonnet46.inputPerMillion)
-        XCTAssertEqual(sonnet5.outputPerMillion, sonnet46.outputPerMillion)
-    }
-
-    /// GLM 5.2 (Z.ai) was added to Cursor's pricing page after the 2026-06-09 manifest sync. It ships
-    /// as two reasoning-effort variants — `glm-5.2-high` and `glm-5.2-max` — which both resolve to the
-    /// one canonical `glm-5.2` entry. The pricing page lists no separate cache-write price, so cache
-    /// write is billed at the input rate ($1.4), matching how the Gemini/GPT entries are filled.
-    func testGLM52PricingAndAliases() throws {
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "glm-5.2"), "glm-5.2")
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "glm-5.2-high"), "glm-5.2")
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "glm-5.2-max"), "glm-5.2")
-
-        let glm = try XCTUnwrap(CursorPricing.pricingEntry(for: "glm-5.2-max"))
-        XCTAssertEqual(glm.familyDisplayName, "GLM 5.2")
-        XCTAssertEqual(glm.inputPerMillion, 1.4)
-        XCTAssertEqual(glm.cacheWritePerMillion, 1.4)
-        XCTAssertEqual(glm.cacheReadPerMillion, 0.26)
-        XCTAssertEqual(glm.outputPerMillion, 4.4)
-
-        // 1M output at $4.4/M → $4.40; a slug outside the high/max allowlist stays unpriced ($0).
-        let outputOnly = CursorTokenUsage(inputCacheWrite: 0, inputNoCacheWrite: 0, cacheRead: 0, output: 1_000_000)
-        XCTAssertEqual(CursorPricing.estimatedCostDollars(model: "glm-5.2-high", maxMode: false, tokens: outputOnly), 4.4, accuracy: 1e-9)
-        XCTAssertNil(CursorPricing.canonicalModel(for: "glm-5.2-bogus"))
-        XCTAssertEqual(CursorPricing.estimatedCostDollars(model: "glm-5.2-bogus", maxMode: false, tokens: outputOnly), 0, accuracy: 1e-9)
-    }
-
-    func testCostSumsAllFourBucketsAndUnpricedIsZero() {
-        let entry = try! XCTUnwrap(CursorPricing.pricingEntry(for: "composer-1"))
-        let tokens = CursorTokenUsage(
-            inputCacheWrite: 1_000_000,
-            inputNoCacheWrite: 1_000_000,
-            cacheRead: 1_000_000,
-            output: 1_000_000
-        )
-        let expected = entry.cacheWritePerMillion + entry.inputPerMillion + entry.cacheReadPerMillion + entry.outputPerMillion
-        XCTAssertEqual(CursorPricing.estimatedCostDollars(model: "composer-1", maxMode: false, tokens: tokens), expected, accuracy: 1e-9)
-
-        XCTAssertEqual(CursorPricing.estimatedCostDollars(model: "nope", maxMode: false, tokens: tokens), 0, accuracy: 1e-9)
+        XCTAssertEqual(rows[0].imputedCostDollars!, 10.0, accuracy: 1e-9)
+        // No pricing source knows the second model: tokens counted, cost nil (flags the day incomplete).
+        XCTAssertEqual(rows[1].tokens.totalTokens, 100)
+        XCTAssertNil(rows[1].imputedCostDollars)
     }
 }
 
@@ -212,9 +123,9 @@ final class CursorSpendRangeTests: XCTestCase {
         let cal = Calendar.current
         let rows = [
             makeRow(date: now, cost: 1.00, tokens: 100, model: "composer-1"),                                  // priced, today
-            makeRow(date: now, cost: 0.00, tokens: 50, model: "totally-unknown-model-xyz"),                     // unknown, today
+            makeRow(date: now, cost: nil, tokens: 50, model: "totally-unknown-model-xyz"),                      // unknown, today
             makeRow(date: cal.date(byAdding: .day, value: -1, to: now)!, cost: 2.00, tokens: 200, model: "composer-1"), // priced, yesterday
-            makeRow(date: cal.date(byAdding: .day, value: -3, to: now)!, cost: 0.00, tokens: 80, model: "another-unknown-abc") // unknown, last30 only
+            makeRow(date: cal.date(byAdding: .day, value: -3, to: now)!, cost: nil, tokens: 80, model: "another-unknown-abc") // unknown, last30 only
         ]
 
         var lines: [MetricLine] = []
@@ -234,7 +145,7 @@ final class CursorSpendRangeTests: XCTestCase {
         // the zero-token unknown is filtered out, not just hidden by an absent tile.
         let rows = [
             makeRow(date: now, cost: 1.00, tokens: 100, model: "composer-1"),
-            makeRow(date: now, cost: 0.00, tokens: 0, model: "totally-unknown-model-xyz")
+            makeRow(date: now, cost: nil, tokens: 0, model: "totally-unknown-model-xyz")
         ]
 
         var lines: [MetricLine] = []
@@ -250,12 +161,13 @@ final class CursorSpendRangeTests: XCTestCase {
         return unknownModels
     }
 
-    private func makeRow(date: Date, cost: Double, tokens: Int, model: String = "composer-1") -> CursorUsageCSVRow {
+    /// `cost: nil` models a row no pricing source could price (the unknown-model case).
+    private func makeRow(date: Date, cost: Double?, tokens: Int, model: String = "composer-1") -> CursorUsageCSVRow {
         CursorUsageCSVRow(
             date: date,
             model: model,
             maxMode: false,
-            tokens: CursorTokenUsage(inputCacheWrite: 0, inputNoCacheWrite: tokens, cacheRead: 0, output: 0),
+            tokens: TokenBreakdown(input: tokens),
             imputedCostDollars: cost
         )
     }
@@ -273,8 +185,8 @@ final class CursorSpendProviderTests: XCTestCase {
     func testSpendTrackingEnabledDownloadsCSVExposesSpendTilesAndFlagsUnknownModels() async {
         // Spend tracking is back on (issue #758): the provider downloads the usage CSV, exposes the
         // spend-tile + trend descriptors, and emits Today / Yesterday / Last 30 Days / Usage Trend lines
-        // alongside the live quota meters. A row that used a model the manifest can't price carries that
-        // model's name so the tile can warn its cost is incomplete.
+        // alongside the live quota meters. A row that used a model no pricing source can price carries
+        // that model's name so the tile can warn its cost is incomplete.
         XCTAssertTrue(CursorProvider.spendTrackingEnabled, "this regression guards the enabled state")
 
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -318,7 +230,8 @@ final class CursorSpendProviderTests: XCTestCase {
                 keychain: FakeKeychain()
             ),
             usageClient: CursorUsageClient(http: http),
-            now: { now }
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()

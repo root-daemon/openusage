@@ -105,7 +105,7 @@ final class GrokLogUsageScannerTests: XCTestCase {
         {"ts":"2026-06-10T11:00:00.000Z","pid":200,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":1000000,"cached_prompt_tokens":0,"completion_tokens":1000000,"reasoning_tokens":0}}
         """
 
-        let usage = GrokLogUsageScanner.parse(log, since: since)
+        let usage = GrokLogUsageScanner.parse(log, since: since, pricing: TestPricing.bundled)
 
         let day = usage.daily.first { $0.date == "2026-06-10" }
         XCTAssertEqual(day?.totalTokens, 4_000_000)
@@ -121,7 +121,7 @@ final class GrokLogUsageScannerTests: XCTestCase {
         {"ts":"2026-06-12T11:00:00.000Z","pid":7,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":1000000,"cached_prompt_tokens":0,"completion_tokens":0,"reasoning_tokens":0}}
         """
 
-        let usage = GrokLogUsageScanner.parse(log, since: since)
+        let usage = GrokLogUsageScanner.parse(log, since: since, pricing: TestPricing.bundled)
 
         // First row priced as grok-build ($1/M input), second after the switch as composer-2.5-fast ($3/M).
         XCTAssertEqual(usage.daily.first?.costUSD ?? 0, 4.0, accuracy: 0.0001)
@@ -134,7 +134,7 @@ final class GrokLogUsageScannerTests: XCTestCase {
         {"ts":"2026-06-12T09:00:00.000Z","pid":1,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":1000000,"cached_prompt_tokens":800000,"completion_tokens":0,"reasoning_tokens":0}}
         """
 
-        let usage = GrokLogUsageScanner.parse(log, since: since)
+        let usage = GrokLogUsageScanner.parse(log, since: since, pricing: TestPricing.bundled)
 
         // 200k input @ $1/M ($0.2) + 800k cache read @ $0.2/M ($0.16) = $0.36.
         XCTAssertEqual(usage.daily.first?.costUSD ?? 0, 0.36, accuracy: 0.0001)
@@ -148,7 +148,7 @@ final class GrokLogUsageScannerTests: XCTestCase {
         {"ts":"2026-06-10T11:00:00.000Z","pid":1,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":500000,"completion_tokens":0,"reasoning_tokens":0}}
         """
 
-        let usage = GrokLogUsageScanner.parse(log, since: since)
+        let usage = GrokLogUsageScanner.parse(log, since: since, pricing: TestPricing.bundled)
 
         // Only the in-window, token-bearing row counts (the pre-window row and the token-less row drop).
         XCTAssertEqual(usage.daily.count, 1)
@@ -161,7 +161,7 @@ final class GrokLogUsageScannerTests: XCTestCase {
         {"ts":"2026-06-10T10:00:00.000Z","pid":1,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":1000000,"completion_tokens":0,"reasoning_tokens":0}}
         """
 
-        let usage = GrokLogUsageScanner.parse(log, since: since)
+        let usage = GrokLogUsageScanner.parse(log, since: since, pricing: TestPricing.bundled)
 
         XCTAssertEqual(usage.daily.first?.totalTokens, 1_000_000)
         XCTAssertNil(usage.daily.first?.costUSD)
@@ -180,7 +180,7 @@ final class GrokLogUsageScannerTests: XCTestCase {
             homeDirectory: { URL(fileURLWithPath: "/home/ignored") }
         )
 
-        let usage = await scanner.scan(daysBack: 30, now: OpenUsageISO8601.date(from: "2026-06-18T00:00:00.000Z")!)
+        let usage = await scanner.scan(daysBack: 30, now: OpenUsageISO8601.date(from: "2026-06-18T00:00:00.000Z")!, pricing: TestPricing.bundled)
 
         XCTAssertEqual(usage?.daily.first?.totalTokens, 1_000_000)
     }
@@ -192,17 +192,8 @@ final class GrokLogUsageScannerTests: XCTestCase {
             homeDirectory: { URL(fileURLWithPath: "/home/ignored") }
         )
 
-        let usage = await scanner.scan()
+        let usage = await scanner.scan(pricing: TestPricing.bundled)
         XCTAssertNil(usage)
-    }
-}
-
-final class GrokPricingAliasTests: XCTestCase {
-    func testGrokCLIModelIDsResolveToManifestEntries() {
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "grok-build"), "grok-build-0.1")
-        XCTAssertEqual(CursorPricing.canonicalModel(for: "grok-composer-2.5-fast"), "composer-2.5-fast")
-        XCTAssertNotNil(CursorPricing.pricingEntry(for: "grok-build"))
-        XCTAssertNotNil(CursorPricing.pricingEntry(for: "grok-composer-2.5-fast"))
     }
 }
 
@@ -248,7 +239,8 @@ final class GrokProviderTests: XCTestCase {
             authStore: GrokAuthStore(files: files, now: { now }),
             usageClient: GrokUsageClient(httpClient: httpClient),
             logUsageScanner: noLogScanner(),
-            now: { now }
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -305,7 +297,8 @@ final class GrokProviderTests: XCTestCase {
             authStore: GrokAuthStore(files: files, now: { now }),
             usageClient: GrokUsageClient(httpClient: httpClient),
             logUsageScanner: noLogScanner(),
-            now: { now }
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -347,7 +340,8 @@ final class GrokProviderTests: XCTestCase {
             authStore: GrokAuthStore(files: files, now: { now }),
             usageClient: GrokUsageClient(httpClient: httpClient),
             logUsageScanner: scanner,
-            now: { now }
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -394,7 +388,8 @@ final class GrokProviderTests: XCTestCase {
             authStore: GrokAuthStore(files: files, now: { now }),
             usageClient: GrokUsageClient(httpClient: httpClient),
             logUsageScanner: scanner,
-            now: { now }
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -435,7 +430,8 @@ final class GrokProviderTests: XCTestCase {
             authStore: GrokAuthStore(files: files, now: { now }),
             usageClient: GrokUsageClient(httpClient: httpClient),
             logUsageScanner: scanner,
-            now: { now }
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()
@@ -467,7 +463,8 @@ final class GrokProviderTests: XCTestCase {
             authStore: GrokAuthStore(files: files, now: { now }),
             usageClient: GrokUsageClient(httpClient: httpClient),
             logUsageScanner: noLogScanner(),
-            now: { now }
+            now: { now },
+            pricing: { TestPricing.bundled }
         )
 
         let snapshot = await provider.refresh()

@@ -230,17 +230,17 @@ enum CursorUsageMapper {
         let calendar = Calendar.current
         var costByDay: [String: Double] = [:]
         var tokensByDay: [String: Int] = [:]
-        // Models the bundled manifest can't price contribute tokens but $0 of cost, so a period that used
-        // one has an understated dollar figure. Track those names per day so the spend tile can warn which
-        // model made its cost incomplete. Only rows that actually spent tokens count — a 0-token row of an
-        // unknown model changes nothing, so it isn't worth flagging.
+        // Models no pricing source can price (nil imputed cost) contribute tokens but $0 of cost, so a
+        // period that used one has an understated dollar figure. Track those names per day so the spend
+        // tile can warn which model made its cost incomplete. Only rows that actually spent tokens count —
+        // a 0-token row of an unknown model changes nothing, so it isn't worth flagging.
         var unknownModelsByDay: [String: Set<String>] = [:]
         for row in rows {
             let day = dayKey(from: row.date, calendar: calendar)
-            costByDay[day, default: 0] += row.imputedCostDollars
-            tokensByDay[day, default: 0] += row.tokens.total
+            costByDay[day, default: 0] += row.imputedCostDollars ?? 0
+            tokensByDay[day, default: 0] += row.tokens.totalTokens
             let model = row.model.trimmingCharacters(in: .whitespacesAndNewlines)
-            if row.tokens.total > 0, !model.isEmpty, CursorPricing.pricingEntry(for: model) == nil {
+            if row.tokens.totalTokens > 0, !model.isEmpty, row.imputedCostDollars == nil {
                 unknownModelsByDay[day, default: []].insert(model)
             }
         }
@@ -251,14 +251,14 @@ enum CursorUsageMapper {
             DailyUsageEntry(
                 date: day,
                 totalTokens: tokensByDay[day] ?? 0,
-                costUSD: Double(CursorPricing.toCents(costByDay[day] ?? 0)) / 100
+                costUSD: ((costByDay[day] ?? 0) * 100).rounded() / 100
             )
         }
         let series = DailyUsageSeries(daily: daily)
         SpendTileMapper.appendTokenUsage(series, to: &lines, now: now, estimated: false,
                                          unknownModelsByDay: unknownModelsByDay)
         // Cursor's tokens come from the server-priced usage CSV, not a local CLI log, so the trend
-        // note names that source rather than the "estimated from local logs" line the ccusage/Grok
+        // note names that source rather than the "estimated from local logs" line the log-scanning
         // providers use. Tokens are measured either way.
         SpendTileMapper.appendUsageTrend(series, to: &lines, now: now, note: "From your Cursor usage history")
     }

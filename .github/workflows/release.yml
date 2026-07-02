@@ -210,3 +210,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
           publish_dir: ./public
+          # gh-pages also hosts pricing_supplement.json (see pricing-supplement.yml). Without
+          # keep_files, publishing the appcast would delete it from the branch.
+          keep_files: true

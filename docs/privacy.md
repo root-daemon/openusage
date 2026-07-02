@@ -20,6 +20,10 @@ It also reports **crashes**, so we can find and fix the bugs that make the app q
 - No error **messages** or file paths — only coarse error categories as counts.
 - Nothing while the toggle is off.
 
+## Other network requests
+
+Besides the provider API calls the vendor's own tools would make, OpenUsage fetches public [model price lists](pricing.md) about once a day (from `raw.githubusercontent.com`, `models.dev`, and this project's GitHub Pages). These are plain downloads of public data — they carry no usage, log, or account information, and they run regardless of the Share Anonymous Usage setting. The spend tiles are computed from local CLI logs entirely on your Mac; no log data ever leaves it.
+
 ## How it works
 
 - Data is fully anonymous: OpenUsage never identifies you to the analytics service and creates no user profile.

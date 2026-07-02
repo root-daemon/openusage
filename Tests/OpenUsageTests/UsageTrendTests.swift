@@ -1,7 +1,7 @@
 import XCTest
 @testable import OpenUsage
 
-/// Covers the Usage Trend feature: the per-day token sparkline built from ccusage daily data, its
+/// Covers the Usage Trend feature: the per-day token sparkline built from scanned daily data, its
 /// chart `MetricLine`, and how it flows through the descriptor / data store (non-pinnable, no-data safe).
 @MainActor
 final class UsageTrendTests: XCTestCase {

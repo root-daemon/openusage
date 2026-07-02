@@ -9,14 +9,14 @@ enum SpendTileMapper {
     /// Append the three spend tiles (Today / Yesterday / Last 30 Days). A period with no usage is left
     /// unbacked so the tile reads "No data" — a zero here is indistinguishable from "the source hasn't
     /// accounted for this day yet," and a confident `$0.00 · 0 tokens` contradicts a live session meter
-    /// that proves otherwise. This holds for every source (ccusage for Claude/Codex, the Grok CLI log,
+    /// that proves otherwise. This holds for every source (the Claude/Codex/Grok log scanners,
     /// Cursor's CSV export); there's no per-source branching. "No data" is also what a tile shows when
     /// the source couldn't be read at all (missing log, failed API/CSV), where the caller appends
     /// nothing. `estimated` flags the dollar value as a local estimate (drives the ⓘ); pass `false` for
     /// server-priced sources like Cursor.
-    /// `unknownModelsByDay` (Cursor only) maps a `yyyy-MM-dd` day key to the set of model names used that
-    /// day that the pricing manifest can't price. Today / Yesterday pick up their own day's set; Last 30
-    /// Days carries the union across the whole window. Empty (the default) for every other source, so
+    /// `unknownModelsByDay` maps a `yyyy-MM-dd` day key to the set of model names used that day that no
+    /// pricing source can price. Today / Yesterday pick up their own day's set; Last 30 Days carries the
+    /// union across the whole window. Empty (the default) for sources without unknown-model detection, so
     /// their tiles never carry unknown-model warnings.
     static func appendTokenUsage(
         _ usage: DailyUsageSeries,
@@ -55,7 +55,7 @@ enum SpendTileMapper {
     }
 
     /// Number of days before `now` the trend window spans; with `now` itself that's 31 calendar bars,
-    /// matching the ccusage `daysBack: 30` query window the daily rows come from.
+    /// matching the scanners' `daysBack: 30` query window the daily rows come from.
     private static let trendWindowDays = 30
 
     /// Append the Usage Trend chart line: one bar per calendar day over the window, value = tokens used
@@ -66,24 +66,6 @@ enum SpendTileMapper {
         let points = trendPoints(usage, now: now)
         guard !points.isEmpty else { return }
         lines.append(.chart(label: "Usage Trend", points: points, note: note))
-    }
-
-    /// Query `ccusage` for the last 30 days and, on success, append the spend tiles + usage-trend chart.
-    /// Claude and Codex both source their spend from `ccusage` and handle the result identically, so the
-    /// query → append sequence (and its "estimated from local logs" note) lives here once.
-    static func appendCcusageUsage(
-        using runner: CcusageRunner,
-        provider: CcusageProvider,
-        homePath: String?,
-        to lines: inout [MetricLine],
-        now: Date
-    ) async {
-        let since = CcusageRunner.sinceString(daysBack: 30, from: now)
-        guard case .success(let usage) = await runner.query(provider: provider, since: since, homePath: homePath) else {
-            return
-        }
-        appendTokenUsage(usage, to: &lines, now: now)
-        appendUsageTrend(usage, to: &lines, now: now, note: "Estimated from local logs at API rates")
     }
 
     /// Per-day token points across the queried window (today + the previous 30 days), oldest first.

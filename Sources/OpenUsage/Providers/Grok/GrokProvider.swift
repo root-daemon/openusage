@@ -15,17 +15,20 @@ final class GrokProvider: ProviderRuntime {
     let usageClient: GrokUsageClient
     let logUsageScanner: GrokLogUsageScanner
     let now: @Sendable () -> Date
+    let pricing: @Sendable () async -> ModelPricing
 
     init(
         authStore: GrokAuthStore = GrokAuthStore(),
         usageClient: GrokUsageClient = GrokUsageClient(),
         logUsageScanner: GrokLogUsageScanner = GrokLogUsageScanner(),
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        pricing: @escaping @Sendable () async -> ModelPricing = { await ModelPricingStore.shared.current() }
     ) {
         self.authStore = authStore
         self.usageClient = usageClient
         self.logUsageScanner = logUsageScanner
         self.now = now
+        self.pricing = pricing
     }
 
     var widgetDescriptors: [WidgetDescriptor] {
@@ -73,9 +76,9 @@ final class GrokProvider: ProviderRuntime {
         var mapped = try GrokUsageMapper.mapBillingResponse(billingResponse)
         let plan = await fetchPlanName(accessToken: state.token)
 
-        // Local ccusage-style spend tiles, read natively from the Grok CLI log (no package runner).
-        // `scan` is awaited so its whole-file read + parse runs off the main actor.
-        if let tokenUsage = await logUsageScanner.scan(daysBack: 30, now: now()) {
+        // Local spend tiles, read natively from the Grok CLI log and priced via the shared pricing
+        // store. `scan` is awaited so its whole-file read + parse runs off the main actor.
+        if let tokenUsage = await logUsageScanner.scan(daysBack: 30, now: now(), pricing: await pricing()) {
             SpendTileMapper.appendTokenUsage(tokenUsage, to: &mapped.lines, now: now())
             SpendTileMapper.appendUsageTrend(tokenUsage, to: &mapped.lines, now: now(),
                                              note: "Estimated from local logs at API rates")
