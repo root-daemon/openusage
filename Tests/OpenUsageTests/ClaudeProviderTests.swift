@@ -581,6 +581,16 @@ final class ClaudeProviderTests: XCTestCase {
         let noneAtAll = makeProvider(files: FakeFiles())
         let plainSnapshot = await noneAtAll.refresh()
         XCTAssertEqual(badge(plainSnapshot.lines, "Error"), ClaudeAuthError.notLoggedIn.localizedDescription)
+
+        // A stored-but-blank CLI token (whitespace accessToken survives the store's isEmpty check but is
+        // dropped by the provider's trim filter) means the CLI did write credentials — the desktop-app
+        // hint must not fire even when the desktop folder exists; plain "Not logged in" is correct.
+        let corruptCLI = makeProvider(files: FakeFiles([
+            "~/.claude/.credentials.json": #"{"claudeAiOauth":{"accessToken":"   "}}"#,
+            "~/Library/Application Support/Claude/claude-code": ""
+        ]))
+        let corruptSnapshot = await corruptCLI.refresh()
+        XCTAssertEqual(badge(corruptSnapshot.lines, "Error"), ClaudeAuthError.notLoggedIn.localizedDescription)
     }
 
     func testRateLimitedResponseMapsToRetryBadgeNotError() async {

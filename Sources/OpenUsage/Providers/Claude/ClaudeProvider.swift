@@ -50,13 +50,16 @@ final class ClaudeProvider: ProviderRuntime {
     }
 
     func refresh() async -> ProviderSnapshot {
-        let candidates = await loadOffMainActor { [authStore] in authStore.loadCredentialCandidates() }
+        let storedCandidates = await loadOffMainActor { [authStore] in authStore.loadCredentialCandidates() }
+        let candidates = storedCandidates
             .filter { $0.oauth.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }
         guard !candidates.isEmpty else {
             // No CLI credentials anywhere. A login done only in the Claude desktop app is stored in an
             // Electron-encrypted blob OpenUsage can't read, so a bare "Not logged in" reads as wrong to
             // a user who is clearly signed in (#825) — point them at the one-time CLI login instead.
-            if await loadOffMainActor({ [authStore] in authStore.hasDesktopAppData() }) {
+            // Gated on the store finding nothing at all: a stored-but-blank token means the CLI *did*
+            // write credentials, so the plain "Not logged in" is the right guidance there.
+            if storedCandidates.isEmpty, await loadOffMainActor({ [authStore] in authStore.hasDesktopAppData() }) {
                 AppLog.info(LogTag.auth("claude"), "no CLI credentials, but desktop app data found — CLI login needed")
                 return ProviderSnapshot.error(provider: provider, error: ClaudeAuthError.desktopAppOnly)
             }
