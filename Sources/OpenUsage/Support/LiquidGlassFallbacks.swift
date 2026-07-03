@@ -42,10 +42,9 @@ extension View {
     }
 
     /// A single interactive Liquid Glass surface (in the given shape) drawn behind a *whole control* —
-    /// the footer's split button wraps its `HStack` (Customize + divider + chevron) in one
-    /// `interactiveGlass(in: Capsule())` so the two plain-styled tap targets sit on one continuous
-    /// capsule rather than two separate pills. Apply it to the container, never to each segment, and
-    /// keep the segments `.buttonStyle(.plain)` so this glass is the only surface — the system
+    /// the footer's Options menu button wraps its plain-styled label in one
+    /// `interactiveGlass(in: Capsule())` so it sits on one continuous capsule. Apply it to the
+    /// container, and keep the control `.buttonStyle(.plain)` so this glass is the only surface — the system
     /// `.buttonStyle(.glass)` renders flat on a `Menu` (its own button chrome wins), and per-segment
     /// glass would split the capsule. `.interactive()` adds the hover/press shimmer + scale that reads
     /// as Liquid Glass. macOS 15 gets a frosted material shape with a hairline border (no glass there).

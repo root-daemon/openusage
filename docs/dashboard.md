@@ -43,17 +43,17 @@ Provider headers: **Hide \<provider\> · Refresh \<provider\> · Customize…** 
 Copy a clean, branded PNG of one provider's usage to your clipboard, ready to paste into a chat, a tweet, or a doc. There are two ways to reach it:
 
 - Right-click a provider header and choose **Share Screenshot**.
-- Open the footer's **⌄** menu and choose **Share Screenshot** ▸ *\<provider\>*. The submenu lists every provider currently showing on the dashboard.
+- Open the footer's **Options** menu and choose **Share Screenshot** ▸ *\<provider\>*. The submenu lists every provider currently showing on the dashboard.
 
 The image is a flexible-height PNG using the app's look — the provider's mark and name up top, the metric rows you currently see for that provider, and a small OpenUsage mark centered at the bottom. It follows your Light/Dark appearance and shows everything on the card as-is (nothing is hidden or blurred).
 
 ## Footer
 
-The bar pinned to the bottom of the popover. On the left: the app version, and a live "Next update in …" countdown you can click (or press **⌘R**) to refresh right away. On the right: a **Customize** button paired with a **⌄** menu. The menu holds the app-level actions — **Settings**, **Share Screenshot** (submenu of providers), **Check for Updates…**, **About OpenUsage**, and **Quit OpenUsage**.
+The bar pinned to the bottom of the popover. On the left: the app version, and a live "Next update in …" countdown you can click (or press **⌘R**) to refresh right away. On the right: an **Options** menu button. It holds everything in one place — **Customize**, **Settings**, **Share Screenshot** (submenu of providers), **Check for Updates…**, **About OpenUsage**, and **Quit OpenUsage**.
 
 ## Customize
 
-Open Customize from the footer's **Customize** button (or press **Return**). It's a two-level screen: a list of providers, then a provider's detail.
+Open Customize from the footer's **Options** menu (or press **Return**). It's a two-level screen: a list of providers, then a provider's detail.
 
 The **provider list** shows every provider with a switch to turn it on or off, an Active/Inactive status, a count of its metrics, and a chevron into its detail. Turn a provider off and it stays in the list, greyed — its metrics hide from the dashboard and menu bar but keep their setup for when you turn it back on. Drag providers by their grip to reorder; tap a row to open its detail. On a fresh install only the providers detected on your Mac start on (see "First launch" above); this list is where you add the rest.
 

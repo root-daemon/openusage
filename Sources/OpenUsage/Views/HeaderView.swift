@@ -1,20 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// The dashboard footer's trailing control: a **split button** in Liquid Glass — one capsule with
-/// "Customize" on the left and a chevron segment on the right, divided by a hairline (the Export ▾
-/// idiom system apps use). Clicking "Customize" opens the Customize screen; clicking the chevron opens
-/// the overflow menu (Settings / Share Screenshot / Check for Updates / About / Quit). Customize leads
-/// because it's the screen users reach for most when shaping the dashboard; Settings stays one click
-/// away in the overflow (and always via ⌘,).
+/// The dashboard footer's trailing control: a single **Options ⌄** menu button in Liquid Glass. The
+/// earlier split button ("Customize" + separate chevron) confused people — two tap targets in one
+/// capsule read as one — so everything now lives in one obvious menu: Customize / Settings / Share
+/// Screenshot / Check for Updates / About / Quit. Customize leads the menu because it's the screen
+/// users reach for most; Settings stays one click away (and always via ⌘,).
 ///
-/// The joined-capsule look comes from one glass surface behind the *whole* control: an `HStack` of two
-/// `.buttonStyle(.plain)` tap targets (a `Button` and a chevron `Menu`) split by a `Divider`, with a
-/// single `interactiveGlass(in: Capsule())` drawn behind all of it. Glass goes on the container, not
-/// each segment — per-segment glass would split it into two pills, and the system `.buttonStyle(.glass)`
-/// renders flat on a `Menu` (its own button chrome wins). This is the canonical macOS 26 pattern
-/// (custom `glassEffect` surface behind grouped controls); it falls back to a frosted material capsule
-/// on macOS 15. The menu renders in its own `NSMenu`-backed window, which
+/// The capsule is a `.buttonStyle(.plain)` `Menu` with a single `interactiveGlass(in: Capsule())`
+/// surface behind it — the system `.buttonStyle(.glass)` renders flat on a `Menu` (its own button
+/// chrome wins), so the glass goes on the container. It falls back to a frosted material capsule on
+/// macOS 15. The menu renders in its own `NSMenu`-backed window, which
 /// `StatusItemController.shouldKeepPanelOpen` keeps the popover open for.
 ///
 /// Only the dashboard shows this; the Customize and Settings screens carry their own top-leading back
@@ -35,79 +31,67 @@ struct HeaderView: View {
     /// per-page), so this control shows only when that's `.dashboard` and swaps in place on a switch.
     let screen: PopoverScreen
 
-    /// Shared height for both halves, so the capsule reads as one control.
+    /// Control height, so the capsule matches the footer's other chrome.
     private static let controlHeight: CGFloat = 28
 
     var body: some View {
         leadingControl
     }
 
-    /// On the dashboard, the split button: the two halves laid out edge to edge (spacing 0) with a
-    /// hairline `Divider` between, all on one glass capsule.
+    /// On the dashboard, the Options menu button on one glass capsule.
     @ViewBuilder
     private var leadingControl: some View {
         if screen == .dashboard {
-            HStack(spacing: 0) {
-                customizeHalf
-                Divider()
-                    .frame(height: 16)
-                chevronHalf
-            }
-            .fixedSize()
-            .interactiveGlass(in: Capsule())
+            optionsButton
+                .fixedSize()
+                .interactiveGlass(in: Capsule())
         }
     }
 
-    /// Left half: opens Customize. `.buttonStyle(.plain)` strips the system chrome so the shared glass
-    /// is the only surface; `contentShape` makes the whole padded half clickable. ⏎ opens Customize
-    /// from anywhere via `PopoverKeyReader`, so the shortcut isn't registered here (which would also
-    /// flag the button as the window's default and draw a pulsing ring) — the tooltip surfaces it.
-    private var customizeHalf: some View {
-        Button { toggle(.customize) } label: {
-            Text("Customize")
-                .font(.system(size: 13, weight: .semibold))
-                .padding(.leading, 14)
-                .padding(.trailing, 11)
-                .frame(height: Self.controlHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverTooltip("Customize (⏎)")
-    }
-
-    /// Right half: the chevron pull-down. `.menuStyle(.button)` + `.buttonStyle(.plain)` strip the menu
-    /// chrome to just the glyph; `.menuIndicator(.hidden)` drops the built-in arrow (the chevron already
-    /// reads as "more"). `.fixedSize` keeps the glyph from stretching the half.
-    private var chevronHalf: some View {
+    /// The Options pull-down: label plus its own chevron glyph. `.menuStyle(.button)` +
+    /// `.buttonStyle(.plain)` strip the menu chrome so the shared glass is the only surface;
+    /// `.menuIndicator(.hidden)` drops the built-in arrow in favor of our styled chevron.
+    private var optionsButton: some View {
         Menu {
-            moreMenuItems
+            menuItems
         } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 11, weight: .semibold))
-                .padding(.leading, 9)
-                .padding(.trailing, 12)
-                .frame(height: Self.controlHeight)
-                .contentShape(Rectangle())
+            HStack(spacing: 5) {
+                Text("Options")
+                    .font(.system(size: 13, weight: .semibold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .padding(.leading, 14)
+            .padding(.trailing, 12)
+            .frame(height: Self.controlHeight)
+            .contentShape(Rectangle())
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .accessibilityLabel("More")
     }
 
-    /// The chevron's overflow items, mirroring their in-popover entry points. `autoenablesItems` has no
-    /// SwiftUI equivalent, so the Check for Updates item disables itself when Sparkle can't currently
-    /// check — e.g. dev builds with no feed, or while a check is already in flight. Settings carries its
-    /// ⌘, key equivalent so the menu shows the shortcut: when the menu is open the item handles ⌘,;
-    /// when it's closed the `PopoverDismissReader` monitor handles (and consumes) ⌘, first, so the item's
-    /// equivalent can't double-fire. Same split as the Quit ⌘Q item below.
+    /// The menu's items, mirroring their in-popover entry points. Customize leads, then Settings.
+    /// `autoenablesItems` has no SwiftUI equivalent, so the Check for Updates item disables itself when
+    /// Sparkle can't currently check — e.g. dev builds with no feed, or while a check is already in
+    /// flight. Customize and Settings carry their key equivalents so the menu shows the shortcuts: when
+    /// the menu is open the items handle them; when it's closed the `PopoverDismissReader` monitor
+    /// handles (and consumes) them first, so the equivalents can't double-fire. Same split as the Quit
+    /// ⌘Q item below.
     @ViewBuilder
-    private var moreMenuItems: some View {
+    private var menuItems: some View {
+        Button { toggle(.customize) } label: {
+            Label("Customize", systemImage: "slider.horizontal.3")
+        }
+        .keyboardShortcut(.return, modifiers: [])
+
         Button { toggle(.settings) } label: {
             Label("Settings", systemImage: "gearshape")
         }
         .keyboardShortcut(",")
+
+        Divider()
 
         shareScreenshotMenu
 
