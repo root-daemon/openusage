@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.3-beta.4
+
+### Bug Fixes
+- fix(claude): surface rate-limited state as a header warning instead of a silent blank ([#849](https://github.com/robinebers/openusage/pull/849)) by @robinebers
+
+### Chores
+- chore(deps): bump github.com/posthog/posthog-ios from 3.62.0 to 3.64.1 ([#848](https://github.com/robinebers/openusage/pull/848)) by @app/dependabot
+- chore(deps): bump actions/checkout from 4 to 7 ([#847](https://github.com/robinebers/openusage/pull/847)) by @app/dependabot
+
+---
+
+### Changelog
+**Full Changelog**: [v0.7.3-beta.3...v0.7.3-beta.4](https://github.com/robinebers/openusage/compare/v0.7.3-beta.3...v0.7.3-beta.4)
+
+- [5936841](https://github.com/robinebers/openusage/commit/5936841f0dc9a278dd46329082008ccf272b978c) fix(claude): surface rate-limited state as a header warning instead of a silent blank by @robinebers
+- [0b8c39f](https://github.com/robinebers/openusage/commit/0b8c39f1ffeb61015f5deb6b91121d9083878c97) chore(deps): bump github.com/posthog/posthog-ios from 3.62.0 to 3.64.1 by @app/dependabot
+- [9fa1923](https://github.com/robinebers/openusage/commit/9fa1923113de6205af83c7dd412ad07ccd77dc9b) chore(deps): bump actions/checkout from 4 to 7 by @app/dependabot
+
 ## v0.7.3-beta.3
 
 ### Bug Fixes
