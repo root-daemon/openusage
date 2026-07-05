@@ -4,11 +4,38 @@ Track your AI coding subscriptions from the macOS menu bar — native Swift edit
 
 OpenUsage shows how much of your AI coding plans you've used: session and weekly limits, credits, and spend, all in one popover. Pin your most important metrics straight into the menu bar.
 
+## Custom Fork
+
+This repository is a custom build of [OpenUsage](https://github.com/robinebers/openusage), maintained by `root-daemon`.
+
+Credit for the original app, design, provider architecture, release infrastructure, documentation, and ongoing upstream development belongs to the OpenUsage project and its maintainers. This fork aims to stay as close to upstream OpenUsage as possible.
+
+The intentional difference in this fork is Codex auth:
+
+- Codex accounts are added through OpenUsage with browser-based OAuth.
+- Multiple Codex accounts can be saved side by side.
+- Codex OAuth credentials are stored in the macOS keychain and refreshed by OpenUsage.
+- Codex CLI auth files are not imported as app accounts, so switching accounts in the CLI does not affect the accounts saved here.
+- Local Codex CLI logs are still read on-device for estimated spend tiles.
+
+Everything else should track upstream OpenUsage unless a custom change is explicitly called out.
+
 <p align="center">
   <img src="assets/screenshot.jpg" alt="OpenUsage menu bar tracker showing Claude and Codex session, weekly, and spend usage" width="900">
 </p>
 
 ## Installation
+
+For this custom fork, build locally and install the staged app:
+
+```sh
+./script/build_and_run.sh build
+rm -rf /Applications/OpenUsage.app
+cp -R dist/OpenUsage.app /Applications/OpenUsage.app
+open -n /Applications/OpenUsage.app
+```
+
+The official upstream OpenUsage app is available through:
 
 **Homebrew:**
 
@@ -18,13 +45,13 @@ brew install --cask openusage
 
 **Direct download:** grab the latest universal DMG from the [releases page](https://github.com/robinebers/openusage/releases/latest), open it, and drag OpenUsage to your Applications folder.
 
-Either way, the app updates itself in place via signed, notarized [Sparkle](docs/updates.md) updates. Requires macOS 15 (Sequoia) or later.
+Official upstream releases update themselves in place via signed, notarized [Sparkle](docs/updates.md) updates. Custom fork builds should be rebuilt and reinstalled from this repository when you want the fork-specific Codex behavior. Requires macOS 15 (Sequoia) or later.
 
 ## Supported Providers
 
 - **[Antigravity](docs/providers/antigravity.md)** — shared Gemini and Claude pool quotas, 5-hour and weekly windows
 - **[Claude](docs/providers/claude.md)** — session, weekly, Sonnet, extra usage, local daily spend
-- **[Codex](docs/providers/codex.md)** — session, weekly, credits, local daily spend
+- **[Codex](docs/providers/codex.md)** — browser-based multi-account auth in this fork, session, weekly, credits, local daily spend
 - **[Cursor](docs/providers/cursor.md)** — credits, total/auto/API usage, requests, on-demand, per-day spend
 - **[Devin](docs/providers/devin.md)** — weekly and daily quota, extra usage balance
 - **[Grok](docs/providers/grok.md)** — credits used, pay-as-you-go
