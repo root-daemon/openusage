@@ -423,9 +423,13 @@ actor ClaudeLogUsageScanner {
     // MARK: - Aggregation
 
     /// Bucket deduplicated entries into local calendar days. Cost mode "auto": a line's `costUSD`
-    /// when present, else tokens priced through `pricing`. A model no source can price contributes
-    /// $0 and lands in `unknownModelsByDay` (the tile's warning triangle); a day where nothing could
-    /// be priced keeps `costUSD` nil so the tile shows just the token count.
+    /// when present, else tokens priced through `pricing`.
+    ///
+    /// Entries that can't be priced (an unknown model, or unattributed tokens with no carried cost)
+    /// are excluded from every displayed total — tokens, dollars, the trend, and the model breakdown —
+    /// because mixing measured tokens with unpriceable ones makes the figures incoherent. An unknown
+    /// model's name lands in `unknownModelsByDay` (the tile's warning triangle), the only place
+    /// unpriceable usage surfaces.
     static func aggregate(entries: [Entry], since: Date, pricing: ModelPricing) -> LogUsageScan {
         var tokensByDay: [String: Int] = [:]
         var costByDay: [String: Double] = [:]
@@ -435,40 +439,30 @@ actor ClaudeLogUsageScanner {
 
         for entry in entries where entry.timestamp >= since {
             let day = dayKey(from: entry.timestamp)
-            tokensByDay[day, default: 0] += entry.tokens.totalTokens
             // One trimmed slug for pricing, the unknown-model warning, and the breakdown key alike —
             // diverging spellings would let the warning triangle and the hover panel disagree.
             let trimmedModel = entry.model?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             let modelName = trimmedModel ?? ModelUsageEntry.unattributedModelName
 
+            let cost: Double
             if let carried = entry.costUSD {
-                costByDay[day, default: 0] += carried
-                pricedDays.insert(day)
-                modelsByDay[day, default: [:]][modelName, default: ModelAccumulator()].add(
-                    tokens: entry.tokens.totalTokens,
-                    costUSD: carried
-                )
-            } else if let model = trimmedModel {
-                if let cost = pricing.estimatedCostDollars(model: model, tokens: entry.tokens) {
-                    costByDay[day, default: 0] += cost
-                    pricedDays.insert(day)
-                    modelsByDay[day, default: [:]][modelName, default: ModelAccumulator()].add(
-                        tokens: entry.tokens.totalTokens,
-                        costUSD: cost
-                    )
-                } else if entry.tokens.totalTokens > 0 {
+                cost = carried
+            } else if let model = trimmedModel, let estimated = pricing.estimatedCostDollars(model: model, tokens: entry.tokens) {
+                cost = estimated
+            } else {
+                if let model = trimmedModel, entry.tokens.totalTokens > 0 {
                     unknownModelsByDay[day, default: []].insert(model)
-                    modelsByDay[day, default: [:]][modelName, default: ModelAccumulator()].add(
-                        tokens: entry.tokens.totalTokens,
-                        costUSD: nil
-                    )
                 }
-            } else if entry.tokens.totalTokens > 0 {
-                modelsByDay[day, default: [:]][modelName, default: ModelAccumulator()].add(
-                    tokens: entry.tokens.totalTokens,
-                    costUSD: nil
-                )
+                continue
             }
+
+            tokensByDay[day, default: 0] += entry.tokens.totalTokens
+            costByDay[day, default: 0] += cost
+            pricedDays.insert(day)
+            modelsByDay[day, default: [:]][modelName, default: ModelAccumulator()].add(
+                tokens: entry.tokens.totalTokens,
+                costUSD: cost
+            )
         }
 
         let days = tokensByDay.keys.sorted(by: >).map { day in

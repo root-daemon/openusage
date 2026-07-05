@@ -96,28 +96,22 @@ struct GrokLogUsageScanner: Sendable {
 
             let day = dayKey(from: timestamp)
             let totalTokens = Int(promptTokens) + output
-            tokensByDay[day, default: 0] += totalTokens
 
-            // Grok's token rows lack a model id; attribute via the row's process. Unpriceable or
-            // unattributed rows contribute 0 and leave the day's cost `nil` only if *no* row was priced.
-            guard let model = pid.flatMap({ modelByPID[$0] }) else {
-                modelsByDay[day, default: [:]][ModelUsageEntry.unattributedModelName, default: ModelAccumulator()].add(
-                    tokens: totalTokens,
-                    costUSD: nil
-                )
-                return
-            }
+            // Grok's token rows lack a model id; attribute via the row's process. Rows that can't be
+            // priced (no attributable model, or a model no source can price) are excluded from every
+            // displayed total — tokens, dollars, the trend, and the model breakdown — because mixing
+            // measured tokens with unpriceable ones makes the figures incoherent. An unknown model's
+            // name lands in `unknownModelsByDay` (the tile's warning triangle), the only place
+            // unpriceable usage surfaces; unattributed rows have no name to warn about.
+            guard let model = pid.flatMap({ modelByPID[$0] }) else { return }
             let tokenBreakdown = TokenBreakdown(input: inputNoCache, cacheRead: cacheRead, output: output)
             guard let cost = pricing.estimatedCostDollars(model: model, tokens: tokenBreakdown) else {
                 if totalTokens > 0 {
                     unknownModelsByDay[day, default: []].insert(model)
                 }
-                modelsByDay[day, default: [:]][model, default: ModelAccumulator()].add(
-                    tokens: totalTokens,
-                    costUSD: nil
-                )
                 return
             }
+            tokensByDay[day, default: 0] += totalTokens
             costByDay[day, default: 0] += cost
             pricedDays.insert(day)
             modelsByDay[day, default: [:]][model, default: ModelAccumulator()].add(

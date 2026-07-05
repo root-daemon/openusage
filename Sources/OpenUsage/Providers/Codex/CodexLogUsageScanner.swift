@@ -433,8 +433,13 @@ actor CodexLogUsageScanner {
     }
 
     /// Bucket events into local calendar days. Identical events across files (copied session logs)
-    /// count once. Cost is per-event codex math (see type doc); a model no source can price
-    /// contributes $0 and lands in `unknownModelsByDay`.
+    /// count once. Cost is per-event codex math (see type doc).
+    ///
+    /// Events that can't be priced (an unknown model, or a blank slug) are excluded from every displayed
+    /// total — tokens, dollars, the trend, and the model breakdown — because mixing measured tokens with
+    /// unpriceable ones makes the figures incoherent. An unknown model's name lands in
+    /// `unknownModelsByDay` (the tile's warning triangle), the only place unpriceable usage surfaces.
+    /// A blank slug is unattributed, not unknown — there is no name to warn about.
     static func aggregate(
         events: [Event], since: Date, pricing: ModelPricing, fastTier: Bool
     ) -> LogUsageScan {
@@ -453,30 +458,24 @@ actor CodexLogUsageScanner {
             guard seen.insert(key).inserted else { continue }
 
             let day = dayKey(from: event.timestamp)
-            tokensByDay[day, default: 0] += event.total
             // One trimmed slug for pricing, the unknown-model warning, and the breakdown key alike —
             // diverging spellings would let the warning triangle and the hover panel disagree.
             let trimmedModel = event.model.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            let modelName = trimmedModel ?? ModelUsageEntry.unattributedModelName
 
-            if let model = trimmedModel, let rates = pricing.resolve(model: model) {
-                let eventCost = cost(rates: rates, event: event, fastTier: fastTier)
-                costByDay[day, default: 0] += eventCost
-                pricedDays.insert(day)
-                modelsByDay[day, default: [:]][modelName, default: ModelAccumulator()].add(
-                    tokens: event.total,
-                    costUSD: eventCost
-                )
-            } else if event.total > 0 {
-                // A blank slug is unattributed, not unknown — there is no name to warn about.
-                if let model = trimmedModel {
+            guard let model = trimmedModel, let rates = pricing.resolve(model: model) else {
+                if let model = trimmedModel, event.total > 0 {
                     unknownModelsByDay[day, default: []].insert(model)
                 }
-                modelsByDay[day, default: [:]][modelName, default: ModelAccumulator()].add(
-                    tokens: event.total,
-                    costUSD: nil
-                )
+                continue
             }
+            let eventCost = cost(rates: rates, event: event, fastTier: fastTier)
+            tokensByDay[day, default: 0] += event.total
+            costByDay[day, default: 0] += eventCost
+            pricedDays.insert(day)
+            modelsByDay[day, default: [:]][model, default: ModelAccumulator()].add(
+                tokens: event.total,
+                costUSD: eventCost
+            )
         }
 
         let days = tokensByDay.keys.sorted(by: >).map { day in

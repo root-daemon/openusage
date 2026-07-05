@@ -239,26 +239,31 @@ enum CursorUsageMapper {
         var costByDay: [String: Double] = [:]
         var tokensByDay: [String: Int] = [:]
         var modelsByDay: [String: [String: ModelAccumulator]] = [:]
-        // Models no pricing source can price (nil imputed cost) contribute tokens but $0 of cost, so a
-        // period that used one has an understated dollar figure. Track those names per day so the spend
-        // tile can warn which model made its cost incomplete. Only rows that actually spent tokens count —
-        // a 0-token row of an unknown model changes nothing, so it isn't worth flagging.
+        // Rows no pricing source can price (nil imputed cost) are excluded from every displayed total —
+        // tokens, dollars, the trend, and the model breakdown — because mixing measured tokens with
+        // unpriceable ones makes the figures incoherent (a huge token count next to a dollar figure that
+        // ignores it). Their model names surface only through the warning triangle: track them per day so
+        // the spend tile can warn that its figures are incomplete. Only rows that actually spent tokens
+        // count — a 0-token row of an unknown model changes nothing, so it isn't worth flagging.
         var unknownModelsByDay: [String: Set<String>] = [:]
         for row in rows {
             let day = dayKey(from: row.date, calendar: calendar)
-            costByDay[day, default: 0] += row.imputedCostDollars ?? 0
-            tokensByDay[day, default: 0] += row.tokens.totalTokens
             let model = row.model.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let cost = row.imputedCostDollars else {
+                if row.tokens.totalTokens > 0, !model.isEmpty {
+                    unknownModelsByDay[day, default: []].insert(model)
+                }
+                continue
+            }
+            costByDay[day, default: 0] += cost
+            tokensByDay[day, default: 0] += row.tokens.totalTokens
             let modelName = model.isEmpty ? ModelUsageEntry.unattributedModelName : model
             let family = model.isEmpty ? modelName : familyName(for: model, pricing: pricing)
             modelsByDay[day, default: [:]][family, default: ModelAccumulator()].add(
                 variant: modelName,
                 tokens: row.tokens.totalTokens,
-                costUSD: row.imputedCostDollars
+                costUSD: cost
             )
-            if row.tokens.totalTokens > 0, !model.isEmpty, row.imputedCostDollars == nil {
-                unknownModelsByDay[day, default: []].insert(model)
-            }
         }
 
         // Sum raw dollars per day, then snap to whole cents once — rounding per row would accumulate

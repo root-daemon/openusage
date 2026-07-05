@@ -157,7 +157,25 @@ final class GrokLogUsageScannerTests: XCTestCase {
         XCTAssertEqual(usage.series.daily.first?.totalTokens, 500_000)
     }
 
-    func testUnpricedModelLeavesCostNil() {
+    func testUnpricedModelIsExcludedFromTotalsButWarns() {
+        let log = """
+        {"ts":"2026-06-10T09:00:00.000Z","pid":1,"msg":"model changed","ctx":{"model":"grok-unknown-model"}}
+        {"ts":"2026-06-10T10:00:00.000Z","pid":1,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":1000000,"completion_tokens":0,"reasoning_tokens":0}}
+        {"ts":"2026-06-10T11:00:00.000Z","pid":2,"msg":"model changed","ctx":{"model":"grok-build"}}
+        {"ts":"2026-06-10T12:00:00.000Z","pid":2,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":500000,"completion_tokens":0,"reasoning_tokens":0}}
+        """
+
+        let usage = GrokLogUsageScanner.parse(log, since: since, pricing: TestPricing.bundled)
+
+        // Unpriceable tokens never enter the displayed totals — they surface only through the
+        // warning triangle, so the tile's tokens and dollars stay coherent.
+        XCTAssertEqual(usage.series.daily.first?.totalTokens, 500_000)
+        XCTAssertNotNil(usage.series.daily.first?.costUSD)
+        XCTAssertEqual(usage.unknownModelsByDay["2026-06-10"], ["grok-unknown-model"])
+        XCTAssertEqual(usage.modelUsage?.daily.first?.models.map(\.model), ["grok-build"])
+    }
+
+    func testUnpricedModelOnlyLeavesDayUnbacked() {
         let log = """
         {"ts":"2026-06-10T09:00:00.000Z","pid":1,"msg":"model changed","ctx":{"model":"grok-unknown-model"}}
         {"ts":"2026-06-10T10:00:00.000Z","pid":1,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":1000000,"completion_tokens":0,"reasoning_tokens":0}}
@@ -165,27 +183,25 @@ final class GrokLogUsageScannerTests: XCTestCase {
 
         let usage = GrokLogUsageScanner.parse(log, since: since, pricing: TestPricing.bundled)
 
-        XCTAssertEqual(usage.series.daily.first?.totalTokens, 1_000_000)
-        XCTAssertNil(usage.series.daily.first?.costUSD)
+        // A day with nothing priceable produces no series entry at all (→ "No data"), but the
+        // unknown-model warning still names what was excluded.
+        XCTAssertTrue(usage.series.daily.isEmpty)
         XCTAssertEqual(usage.unknownModelsByDay["2026-06-10"], ["grok-unknown-model"])
-        XCTAssertEqual(usage.modelUsage?.daily.first?.models, [
-            ModelUsageEntry(model: "grok-unknown-model", totalTokens: 1_000_000, costUSD: nil)
-        ])
+        XCTAssertEqual(usage.modelUsage?.daily ?? [], [])
     }
 
-    func testUnattributedRowsStayVisibleInModelUsage() {
+    func testUnattributedRowsAreExcludedWithoutWarning() {
         let log = """
         {"ts":"2026-06-10T10:00:00.000Z","pid":1,"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":1000000,"completion_tokens":0,"reasoning_tokens":0}}
         """
 
         let usage = GrokLogUsageScanner.parse(log, since: since, pricing: TestPricing.bundled)
 
-        XCTAssertEqual(usage.series.daily.first?.totalTokens, 1_000_000)
-        XCTAssertNil(usage.series.daily.first?.costUSD)
+        // Tokens with no attributable model can't be priced, so they're excluded from every total —
+        // and with no model name to warn about, no unknown-model entry either.
+        XCTAssertTrue(usage.series.daily.isEmpty)
         XCTAssertTrue(usage.unknownModelsByDay.isEmpty)
-        XCTAssertEqual(usage.modelUsage?.daily.first?.models, [
-            ModelUsageEntry(model: ModelUsageEntry.unattributedModelName, totalTokens: 1_000_000, costUSD: nil)
-        ])
+        XCTAssertEqual(usage.modelUsage?.daily ?? [], [])
     }
 
     func testScanReadsGrokHomeOverride() async {

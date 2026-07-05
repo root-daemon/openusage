@@ -361,18 +361,34 @@ final class CodexLogUsageScannerTests: XCTestCase {
         )
     }
 
-    func testAggregateUnknownModelCountsTokensAtZeroCost() {
+    func testAggregateUnknownModelIsExcludedFromTotalsButWarns() {
+        let scan = CodexLogUsageScanner.aggregate(
+            events: [
+                makeEvent("2026-05-12T08:00:00.000Z", model: "mystery-model-9"),
+                makeEvent("2026-05-12T09:00:00.000Z")
+            ],
+            since: .distantPast, pricing: fixedRates(), fastTier: false
+        )
+
+        // Unpriceable tokens never enter the displayed totals — they surface only through the
+        // warning triangle, so the tile's tokens and dollars stay coherent.
+        XCTAssertEqual(scan.series.daily.first?.totalTokens, 150)
+        XCTAssertNotNil(scan.series.daily.first?.costUSD)
+        XCTAssertEqual(scan.unknownModelsByDay["2026-05-12"], ["mystery-model-9"])
+        XCTAssertEqual(scan.modelUsage?.daily.first?.models.map(\.model), ["gpt-5.2"])
+    }
+
+    func testAggregateUnknownModelOnlyLeavesDayUnbacked() {
         let scan = CodexLogUsageScanner.aggregate(
             events: [makeEvent("2026-05-12T08:00:00.000Z", model: "mystery-model-9")],
             since: .distantPast, pricing: fixedRates(), fastTier: false
         )
 
-        XCTAssertEqual(scan.series.daily.first?.totalTokens, 150)
-        XCTAssertNil(scan.series.daily.first?.costUSD)
+        // A day with nothing priceable produces no series entry at all (→ "No data"), but the
+        // unknown-model warning still names what was excluded.
+        XCTAssertTrue(scan.series.daily.isEmpty)
         XCTAssertEqual(scan.unknownModelsByDay["2026-05-12"], ["mystery-model-9"])
-        XCTAssertEqual(scan.modelUsage?.daily.first?.models, [
-            ModelUsageEntry(model: "mystery-model-9", totalTokens: 150, costUSD: nil)
-        ])
+        XCTAssertEqual(scan.modelUsage?.daily ?? [], [])
     }
 
     func testAggregateFiltersEventsBeforeSince() {

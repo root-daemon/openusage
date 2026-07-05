@@ -167,12 +167,16 @@ final class CursorSpendRangeTests: XCTestCase {
         var lines: [MetricLine] = []
         CursorUsageMapper.appendSpendLines(rows: rows, now: now, pricing: TestPricing.bundled, to: &lines)
 
+        // The unpriced row is excluded from the tile's tokens and the breakdown alike — it surfaces
+        // only through the unknown-model warning.
+        XCTAssertEqual(values(lines, "Today"),
+                       [MetricValue(number: 3.01, kind: .dollars), MetricValue(number: 300, kind: .count, label: "tokens")])
+        XCTAssertEqual(unknown(lines, "Today"), ["unpriced-cursor-model"])
         let breakdown = try XCTUnwrap(modelBreakdown(lines, "Today"))
         XCTAssertEqual(breakdown.sourceNote, "From your Cursor usage export")
-        XCTAssertEqual(breakdown.models.map(\.model), ["gpt-5.5", "composer-1", "unpriced-cursor-model"])
-        XCTAssertEqual(breakdown.models.map(\.totalTokens), [200, 100, 300])
+        XCTAssertEqual(breakdown.models.map(\.model), ["gpt-5.5", "composer-1"])
+        XCTAssertEqual(breakdown.models.map(\.totalTokens), [200, 100])
         XCTAssertEqual(breakdown.models[0].costUSD, 2.01, "model cost rounds once at the displayed aggregate")
-        XCTAssertNil(breakdown.models[2].costUSD, "unpriced models stay visible without a dollar figure")
     }
 
     func testModelBreakdownGroupsThinkingEffortSlugsIntoFamilies() throws {
@@ -205,7 +209,10 @@ final class CursorSpendRangeTests: XCTestCase {
                        "a -fast canonical folds into its base family")
     }
 
-    func testModelBreakdownSlugWithoutAliasRuleKeepsItsRawName() throws {
+    func testUnpricedOnlyDayLeavesTilesUnbacked() {
+        // A day whose every row is unpriceable has nothing coherent to display: no tiles, no trend —
+        // the excluded usage exists only in `unknownModelsByDay` (which needs a rendered tile to show
+        // its triangle; here there is none, matching "No data").
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let rows = [
             makeRow(date: now, cost: nil, tokens: 100, model: "totally-unknown-model-xyz")
@@ -214,10 +221,9 @@ final class CursorSpendRangeTests: XCTestCase {
         var lines: [MetricLine] = []
         CursorUsageMapper.appendSpendLines(rows: rows, now: now, pricing: TestPricing.bundled, to: &lines)
 
-        let breakdown = try XCTUnwrap(modelBreakdown(lines, "Today"))
-        XCTAssertEqual(breakdown.models.map(\.model), ["totally-unknown-model-xyz"],
-                       "no alias rule → no guessed family merge")
-        XCTAssertNil(breakdown.models[0].variants, "a single raw slug is not a breakdown")
+        XCTAssertNil(values(lines, "Today"))
+        XCTAssertNil(values(lines, "Last 30 Days"))
+        XCTAssertNil(lines.first(where: { $0.label == "Usage Trend" }))
     }
 
     private func modelBreakdown(_ lines: [MetricLine], _ label: String) -> ModelUsageBreakdown? {

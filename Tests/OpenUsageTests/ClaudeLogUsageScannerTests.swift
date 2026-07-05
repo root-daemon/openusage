@@ -243,7 +243,26 @@ final class ClaudeLogUsageScannerTests: XCTestCase {
         XCTAssertEqual(scan.series.daily[0].costUSD ?? 0, 0.04, accuracy: 1e-9)
     }
 
-    func testAggregateUnknownModelCountsTokensAndWarns() {
+    func testAggregateUnknownModelIsExcludedFromTotalsButWarns() {
+        let day = localDay("2026-02-20T12:00:00.000Z")
+        var unknown = entry(messageID: "m1", requestID: "r1", isSidechain: false, cacheRead: 0, output: 0)
+        unknown.model = "mystery-model"
+        unknown.tokens = TokenBreakdown(input: 10, output: 5)
+        var priced = entry(messageID: "m2", requestID: "r2", isSidechain: false, cacheRead: 0, output: 0)
+        priced.tokens = TokenBreakdown(input: 1000, output: 500)
+
+        let scan = ClaudeLogUsageScanner.aggregate(entries: [unknown, priced], since: .distantPast, pricing: pricing)
+
+        // Unpriceable tokens never enter the displayed totals — they surface only through the
+        // warning triangle, so the tile's tokens and dollars stay coherent.
+        XCTAssertEqual(scan.series.daily, [DailyUsageEntry(date: day, totalTokens: 1500, costUSD: 0.02)])
+        XCTAssertEqual(scan.unknownModelsByDay[day], ["mystery-model"])
+        XCTAssertEqual(scan.modelUsage?.daily.first?.models, [
+            ModelUsageEntry(model: "claude-test-model", totalTokens: 1500, costUSD: 0.02)
+        ])
+    }
+
+    func testAggregateUnknownModelOnlyLeavesDayUnbacked() {
         let day = localDay("2026-02-20T12:00:00.000Z")
         var unknown = entry(messageID: "m1", requestID: "r1", isSidechain: false, cacheRead: 0, output: 0)
         unknown.model = "mystery-model"
@@ -251,26 +270,41 @@ final class ClaudeLogUsageScannerTests: XCTestCase {
 
         let scan = ClaudeLogUsageScanner.aggregate(entries: [unknown], since: .distantPast, pricing: pricing)
 
-        // Tokens count; nothing was priced, so the day's cost stays nil (token-only tile).
-        XCTAssertEqual(scan.series.daily, [DailyUsageEntry(date: day, totalTokens: 15, costUSD: nil)])
+        // A day with nothing priceable produces no series entry at all (→ "No data"), but the
+        // unknown-model warning still names what was excluded.
+        XCTAssertTrue(scan.series.daily.isEmpty)
         XCTAssertEqual(scan.unknownModelsByDay[day], ["mystery-model"])
-        XCTAssertEqual(scan.modelUsage?.daily.first?.models, [
-            ModelUsageEntry(model: "mystery-model", totalTokens: 15, costUSD: nil)
-        ])
+        XCTAssertEqual(scan.modelUsage?.daily ?? [], [])
     }
 
-    func testAggregateSyntheticModelContributesTokensWithoutWarning() {
+    func testAggregateSyntheticModelIsExcludedWithoutWarning() {
         var synthetic = entry(messageID: "m1", requestID: "r1", isSidechain: false, cacheRead: 0, output: 0)
         synthetic.model = nil
         synthetic.tokens = TokenBreakdown(input: 10, output: 5)
 
         let scan = ClaudeLogUsageScanner.aggregate(entries: [synthetic], since: .distantPast, pricing: pricing)
 
-        XCTAssertEqual(scan.series.daily[0].totalTokens, 15)
-        XCTAssertNil(scan.series.daily[0].costUSD)
+        // No model and no carried cost: unpriceable, so excluded from totals — and with no name to
+        // warn about, no unknown-model entry either.
+        XCTAssertTrue(scan.series.daily.isEmpty)
         XCTAssertTrue(scan.unknownModelsByDay.isEmpty)
+        XCTAssertEqual(scan.modelUsage?.daily ?? [], [])
+    }
+
+    func testAggregateSyntheticModelWithCarriedCostStillCounts() {
+        // A cost the log itself carries is priced regardless of the missing model name — only
+        // unpriceable usage is excluded.
+        var synthetic = entry(messageID: "m1", requestID: "r1", isSidechain: false, cacheRead: 0, output: 0)
+        synthetic.model = nil
+        synthetic.costUSD = 0.10
+        synthetic.tokens = TokenBreakdown(input: 10, output: 5)
+
+        let scan = ClaudeLogUsageScanner.aggregate(entries: [synthetic], since: .distantPast, pricing: pricing)
+
+        XCTAssertEqual(scan.series.daily[0].totalTokens, 15)
+        XCTAssertEqual(scan.series.daily[0].costUSD ?? 0, 0.10, accuracy: 1e-9)
         XCTAssertEqual(scan.modelUsage?.daily.first?.models, [
-            ModelUsageEntry(model: ModelUsageEntry.unattributedModelName, totalTokens: 15, costUSD: nil)
+            ModelUsageEntry(model: ModelUsageEntry.unattributedModelName, totalTokens: 15, costUSD: 0.10)
         ])
     }
 

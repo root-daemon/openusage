@@ -18,7 +18,7 @@ Because the supplement is published to GitHub Pages on merge, a pricing correcti
 
 Log and CSV model names rarely match a catalog key exactly, so resolution tries, in order: supplement alias rules, exact key match, fast-variant handling (a `-fast` suffix resolves the base model and applies its fast multiplier), then fuzzy matching — provider prefixes (`anthropic/`, `xai/`, …), dated suffixes (`claude-sonnet-4` ↔ `claude-sonnet-4-20250514`), and separator differences (`grok-4-3` ↔ `grok-4.3`).
 
-A model no source can price still counts its tokens — the day's tile shows tokens without dollars and a warning triangle lists the unpriced models, rather than silently showing a too-low cost.
+A model no source can price is left out of the spend figures entirely — its tokens don't count toward the day's tile, the Usage Trend, or the model breakdown, because a token count next to a dollar figure that ignores part of it would be misleading. Instead, a warning triangle on the affected tiles lists the unpriced models, so you know the figures are incomplete and which model is responsible. A day where *nothing* could be priced reads "No data".
 
 ## What the estimate includes
 
