@@ -12,8 +12,8 @@ struct StalenessHint: Equatable {
 @MainActor
 @Observable
 final class WidgetDataStore {
-    private let registry: WidgetRegistry
-    private let providersByID: [String: ProviderRuntime]
+    private var registry: WidgetRegistry
+    private var providersByID: [String: ProviderRuntime]
     private let cache: ProviderSnapshotCache
     private let defaults: UserDefaults
     /// Whether a provider is currently enabled. Injected so the store consults the single
@@ -120,6 +120,20 @@ final class WidgetDataStore {
         // dashboard show last-known values immediately at launch instead of "—"; the refresh loop
         // replaces them as soon as fresh data lands.
         self.snapshots = cache.loadSnapshots(providerIDs: registry.providers.map(\.id))
+    }
+
+    func updateRegistry(_ registry: WidgetRegistry, providers: [ProviderRuntime], removedProviderIDs: Set<String> = []) {
+        self.registry = registry
+        self.providersByID = Dictionary(uniqueKeysWithValues: providers.map { ($0.provider.id, $0) })
+        if !removedProviderIDs.isEmpty {
+            snapshots = snapshots.filter { !removedProviderIDs.contains($0.key) }
+            providerErrors = providerErrors.filter { !removedProviderIDs.contains($0.key) }
+            failureRetryAfter = failureRetryAfter.filter { !removedProviderIDs.contains($0.key) }
+            notificationState = notificationState.filter { key, _ in
+                guard let providerID = key.split(separator: ".").first.map(String.init) else { return true }
+                return !removedProviderIDs.contains(providerID)
+            }
+        }
     }
 
     /// Refresh every enabled provider, concurrently — one slow provider never delays the rest.
@@ -631,4 +645,3 @@ final class WidgetDataStore {
         return Double(value[match].replacingOccurrences(of: ",", with: ""))
     }
 }
-

@@ -1,6 +1,6 @@
 # Codex
 
-Tracks your ChatGPT/Codex subscription limits using the login from the Codex CLI.
+Tracks your ChatGPT/Codex subscription limits using Codex accounts added in OpenUsage.
 
 ## What it tracks
 
@@ -16,15 +16,17 @@ Tracks your ChatGPT/Codex subscription limits using the login from the Codex CLI
 
 ## Where credentials come from
 
-Sign in once with the Codex CLI (`codex`); OpenUsage reads the same auth files (`$CODEX_HOME` respected) with a keychain fallback. Tokens refresh automatically and rotate back into the auth file.
+Add Codex accounts in **Settings → Codex Accounts**. OpenUsage opens the browser for the OpenAI OAuth login, saves the returned refresh token in your macOS keychain, and refreshes access tokens automatically.
+
+OpenUsage does not import Codex CLI auth files as accounts. This keeps multiple accounts independent, so you can keep personal and work Codex logins side by side without constantly switching the CLI login.
 
 ## The spend tiles
 
-Today / Yesterday / Last 30 Days are computed **locally**: OpenUsage reads the Codex CLI's session rollouts under `~/.codex/sessions/` and `archived_sessions/` (or `$CODEX_HOME`) itself — no external tools needed. Days are grouped in your Mac's local time zone, so they line up with your own calendar. Each period is one tile showing cost and tokens together (`$4.08 · 1.2M tokens`); a day with no usage reads **No data** rather than a misleading `$0.00 · 0 tokens` — the same as every other spend-tracking provider. The live Session and Weekly meters are unaffected. The dollars are estimated from token counts at API rates (that's the ⓘ) using the shared [model pricing](../pricing.md); if your `config.toml` requests the fast/priority service tier, the fast rates apply. The token counts themselves are measured. No log data leaves your Mac.
+Today / Yesterday / Last 30 Days are computed **locally**: OpenUsage reads the Codex CLI's session rollouts under `~/.codex/sessions/` and `archived_sessions/` (or `$CODEX_HOME`) itself — no external tools needed and no CLI auth required. Days are grouped in your Mac's local time zone, so they line up with your own calendar. Each period is one tile showing cost and tokens together (`$4.08 · 1.2M tokens`); a day with no usage reads **No data** rather than a misleading `$0.00 · 0 tokens` — the same as every other spend-tracking provider. The live Session and Weekly meters are unaffected. The dollars are estimated from token counts at API rates (that's the ⓘ) using the shared [model pricing](../pricing.md); if your `config.toml` requests the fast/priority service tier, the fast rates apply. The token counts themselves are measured. No log data leaves your Mac.
 
 ## Troubleshooting
 
-- **"Not logged in"** — run `codex` and sign in, then refresh.
+- **"Not logged in"** — add the Codex account in OpenUsage Settings, then refresh.
 - **API-key-only setups** can't read subscription usage — sign in with your ChatGPT account instead.
 - **Spend tiles show "No data"** — OpenUsage found no Codex session logs in the last 30 days. If your Codex home lives somewhere custom, set `CODEX_HOME` so both the Codex CLI and OpenUsage look in the same place.
 

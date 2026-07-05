@@ -10,6 +10,15 @@ AGENTS.md is the source of truth for agent instructions in this repository. CLAU
 
 > **Repository note:** This is the native Swift edition of OpenUsage. Active development happens on the `main` branch. (NOT the legacy Tauri version which now sits in the `tauri-legacy` branch)
 
+## Custom Fork Policy
+
+This fork is maintained as a custom OpenUsage build. Keep it aligned with upstream OpenUsage except for the custom Codex login feature:
+
+- Codex auth is OpenUsage-managed, browser-based OAuth with support for multiple saved Codex accounts.
+- Codex account credentials are saved in the macOS keychain and refreshed by OpenUsage.
+- Do not revert Codex back to CLI-auth-file account import when merging or rebasing upstream changes.
+- Avoid unrelated product, branding, provider, release, or workflow changes unless explicitly requested.
+
 ## Releases
 
 `main` is the active development line; it ships via `.github/workflows/release.yml` (Sparkle appcast on `gh-pages`). Cut releases with the release-swift skill.

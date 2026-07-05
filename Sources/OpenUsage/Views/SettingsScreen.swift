@@ -84,6 +84,7 @@ struct SettingsScreen: View {
                         .hoverTooltip("Open OpenUsage from anywhere")
                 }
             }
+            codexAccountsSection
             section("Appearance") {
                 row("Icon Style") {
                     picker($layout.menuBarStyle, options: MenuBarStyle.allCases, label: \.label)
@@ -213,6 +214,107 @@ struct SettingsScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await refreshNotificationsAuth() }
         }
+    }
+
+    private var codexAccountsSection: some View {
+        let records = container.codexAccounts.settingsRecords()
+        return section("Codex Accounts") {
+            if records.isEmpty {
+                Text("No Codex accounts added.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, density.controlRowPadding)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(records) { record in
+                    codexAccountRow(record)
+                    if record.id != records.last?.id { Divider() }
+                }
+            }
+            if codexLoginMessage != nil || container.codexAccounts.lastError != nil {
+                Divider()
+                Text(codexLoginMessage ?? container.codexAccounts.lastError ?? "")
+                    .font(.caption)
+                    .foregroundStyle(codexLoginIsError ? AnyShapeStyle(Theme.notice) : AnyShapeStyle(.secondary))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Divider()
+            Button {
+                container.codexOAuth.start {
+                    container.reloadCodexAccounts()
+                    Task { await container.dataStore.refreshAll(force: true) }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                    Text("Add Codex Account")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .glassButtonStyle()
+            .controlSize(.regular)
+            .disabled(container.codexOAuth.status == .waiting)
+            .padding(.horizontal, 12)
+            .padding(.vertical, density.controlRowPadding)
+            if container.codexOAuth.status == .waiting {
+                Divider()
+                Button {
+                    container.codexOAuth.cancel()
+                } label: {
+                    Text("Cancel Login").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal, 12)
+                .padding(.bottom, density.controlRowPadding)
+            }
+        }
+    }
+
+    private func codexAccountRow(_ record: CodexAccountRecord) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "person.crop.circle")
+                .foregroundStyle(.secondary)
+            TextField("Name", text: Binding(
+                get: { record.displayName },
+                set: { container.codexAccounts.rename(record.identity, displayName: $0) }
+            ))
+            .textFieldStyle(.plain)
+            .onSubmit {
+                container.codexOAuth.clearStatus()
+                container.reloadCodexAccounts()
+            }
+            Spacer(minLength: 8)
+            Button {
+                container.codexAccounts.removeManaged(record.identity)
+                container.reloadCodexAccounts()
+                Task { await container.dataStore.refreshAll(force: true) }
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, density.controlRowPadding)
+    }
+
+    private var codexLoginMessage: String? {
+        switch container.codexOAuth.status {
+        case .idle:
+            return nil
+        case .waiting:
+            return "Waiting for browser login."
+        case .succeeded(let message), .failed(let message):
+            return message
+        }
+    }
+
+    private var codexLoginIsError: Bool {
+        if case .failed = container.codexOAuth.status { return true }
+        return container.codexAccounts.lastError != nil
     }
 
     // MARK: - Notifications

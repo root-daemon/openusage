@@ -126,7 +126,7 @@ final class LayoutStore {
         didSet { defaults.set(menuBarStyle.rawValue, forKey: menuBarStyleKey) }
     }
 
-    private let registry: WidgetRegistry
+    private var registry: WidgetRegistry
     private let defaults: UserDefaults
     private let storageKey: String
     private let providerOrderKey: String
@@ -211,7 +211,7 @@ final class LayoutStore {
         // Seed default pins on first launch (no saved value) so the menu bar shows real numbers out of
         // the box; a saved value — including an empty one the user produced by unpinning — is respected.
         if let savedPins = defaults.stringArray(forKey: pinsKey) {
-            pinnedMetricIDs = Set(savedPins.filter { registry.descriptor(id: $0) != nil })
+            pinnedMetricIDs = Self.migrateCodexAccountCreditPins(Set(savedPins.filter { registry.descriptor(id: $0) != nil }))
         } else {
             pinnedMetricIDs = Set(defaultPinnedMetricIDs.filter { registry.descriptor(id: $0) != nil })
         }
@@ -279,6 +279,52 @@ final class LayoutStore {
     }
 
     func provider(id: String) -> Provider? { registry.provider(id: id) }
+
+    func updateRegistry(
+        _ registry: WidgetRegistry,
+        defaultMetricIDs: [String],
+        defaultPinnedMetricIDs: [String],
+        defaultExpandedMetricIDs: [String]
+    ) {
+        self.registry = registry
+        let knownMetricIDs = Set(registry.descriptors.map(\.id))
+        let knownProviderIDs = Set(registry.providers.map(\.id))
+        let placedIDs = Set(placed.map(\.descriptorID))
+        let newDefaultIDs = defaultMetricIDs.filter { knownMetricIDs.contains($0) && !placedIDs.contains($0) }
+        if !newDefaultIDs.isEmpty {
+            placed.append(contentsOf: newDefaultIDs.map { PlacedWidget(descriptorID: $0) })
+        }
+        placed = placed.filter { knownMetricIDs.contains($0.descriptorID) }
+        providerOrder = providerOrder.filter { knownProviderIDs.contains($0) }
+        for providerID in registry.providers.map(\.id) where !providerOrder.contains(providerID) {
+            providerOrder.append(providerID)
+        }
+        metricOrderByProvider = Self.normalizedMetricOrder(metricOrderByProvider, registry: registry)
+        for provider in registry.providers where metricOrderByProvider[provider.id] == nil {
+            metricOrderByProvider[provider.id] = registry.descriptors(for: provider.id).map(\.id)
+        }
+        pinnedMetricIDs = Self.migrateCodexAccountCreditPins(
+            pinnedMetricIDs
+                .union(defaultPinnedMetricIDs.filter { knownMetricIDs.contains($0) })
+                .filter { knownMetricIDs.contains($0) }
+        )
+        expandedMetricIDs = expandedMetricIDs
+            .union(defaultExpandedMetricIDs.filter { knownMetricIDs.contains($0) })
+            .filter { knownMetricIDs.contains($0) }
+        let nextPlacedIDs = Set(placed.map(\.descriptorID))
+        defaultExpandedOnEnableIDs = defaultExpandedOnEnableIDs.filter { id in
+            knownMetricIDs.contains(id) && !nextPlacedIDs.contains(id) && !expandedMetricIDs.contains(id)
+        }
+        expandedProviderIDs = expandedProviderIDs.filter { knownProviderIDs.contains($0) }
+        persist()
+        persistProviderOrder()
+        persistMetricOrder()
+        persistPins()
+        persistExpanded()
+        persistExpandOnEnable()
+        persistExpandedProviders()
+        syncPlacedOrder()
+    }
 
     func descriptor(for widget: PlacedWidget) -> WidgetDescriptor? {
         registry.descriptor(id: widget.descriptorID)
@@ -872,6 +918,7 @@ final class LayoutStore {
     }
 
     private func persistPins() {
+        pinnedMetricIDs = Self.migrateCodexAccountCreditPins(pinnedMetricIDs)
         defaults.set(Array(pinnedMetricIDs), forKey: pinsKey)
     }
 
@@ -1136,6 +1183,15 @@ final class LayoutStore {
         }
         ordered.append(contentsOf: validIDs.filter { !seen.contains($0) })
         return ordered
+    }
+
+    private static func migrateCodexAccountCreditPins(_ pins: Set<String>) -> Set<String> {
+        var migrated = pins
+        for id in pins where id.hasPrefix("codex.") && id.hasSuffix(".credits") {
+            migrated.remove(id)
+            migrated.insert(String(id.dropLast(".credits".count)) + ".weekly")
+        }
+        return migrated
     }
 }
 

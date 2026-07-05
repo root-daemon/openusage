@@ -1,21 +1,23 @@
 import Foundation
 import Observation
 
-/// Composition root: owns the (constant) registry and the (mutable) stores, injected
+/// Composition root: owns the registry and the mutable stores, injected
 /// into the SwiftUI environment.
 @MainActor
 @Observable
 final class AppContainer {
-    let registry: WidgetRegistry
+    var registry: WidgetRegistry
     let layout: LayoutStore
     let dataStore: WidgetDataStore
+    let codexAccounts: CodexAccountStore
+    let codexOAuth: CodexOAuthCoordinator
     /// Single source of truth for which providers the user has turned off. Both stores consult it (via
     /// injected closures) and the Providers settings tab drives it.
     let enablement: ProviderEnablementStore
     /// Providers that need a user-supplied API key (OpenRouter today), conforming to `APIKeyManaging`.
     /// Settings ▸ API Keys lists these and writes key changes through the capability. Empty when no
     /// installed provider needs a user key, in which case the section hides itself.
-    let apiKeyProviders: [any APIKeyManaging]
+    var apiKeyProviders: [any APIKeyManaging]
     /// Quota pace notification preferences (master + three triggers). Drives the Settings section and is
     /// read by `WidgetDataStore.evaluateNotifications`.
     let notificationSettings: NotificationSettingsStore
@@ -31,7 +33,7 @@ final class AppContainer {
     let onboarding: OnboardingStore
     /// The provider runtimes, kept so on-demand credential detection (the Customize "Reset All" reseed)
     /// can re-probe `hasLocalCredentials()` the same way first-run seeding does.
-    private let providers: [ProviderRuntime]
+    private var providers: [ProviderRuntime]
     /// Read-only usage API on 127.0.0.1:6736 for other local apps (silently off when the port is taken).
     private let localAPI: LocalUsageServer
     // A `let` of a `Sendable` `Task` is implicitly nonisolated, so the nonisolated `deinit` can cancel it.
@@ -55,23 +57,17 @@ final class AppContainer {
         // order is the default provider order (`LayoutStore.orderedProviderIDs` falls back to it, and
         // `resetToDefault` seeds it), so the dashboard, Customize sections, and the per-provider reset
         // menu all read this way.
-        let providers: [ProviderRuntime] = [
-            ClaudeProvider(),
-            CodexProvider(),
-            CursorProvider(),
-            AntigravityProvider(),
-            CopilotProvider(),
-            DevinProvider(),
-            GrokProvider(),
-            OpenRouterProvider(),
-            ZAIProvider()
-        ]
+        let codexAccounts = CodexAccountStore()
+        let providers = Self.makeProviders(codexAccounts: codexAccounts)
         let registry = WidgetRegistry.from(providers)
         let apiKeyProviders = providers.compactMap { $0 as? any APIKeyManaging }
         let enablement = ProviderEnablementStore()
         let notificationSettings = NotificationSettingsStore()
         let layout = LayoutStore(
             registry: registry,
+            defaultMetricIDs: Self.defaultMetricIDs(for: providers),
+            defaultPinnedMetricIDs: Self.defaultPinnedMetricIDs(for: providers),
+            defaultExpandedMetricIDs: Self.defaultExpandedMetricIDs(for: providers),
             isProviderEnabled: { [enablement] in enablement.isEnabled($0) }
         )
         let dataStore = WidgetDataStore(
@@ -84,6 +80,10 @@ final class AppContainer {
         // Re-enabling a provider should fetch it promptly, so clear any leftover failure backoff before
         // the enablement wake refreshes. `weak` breaks the cycle (dataStore already captures enablement).
         enablement.onProviderEnabled = { [weak dataStore] id in dataStore?.clearFailureBackoff(for: id) }
+        Self.reconcileBrowserOnlyCodexEnablement(
+            hasBrowserCodexAccounts: !codexAccounts.visibleRecords().isEmpty,
+            enablement: enablement
+        )
         // Fresh installs start minimal: seed the enabled-provider list (Claude/Codex/Cursor right away,
         // then the detected set once the local credential probe finishes). No-op on every later launch.
         let onboarding = OnboardingStore()
@@ -103,6 +103,8 @@ final class AppContainer {
         self.providers = providers
         self.onboarding = onboarding
         self.registry = registry
+        self.codexAccounts = codexAccounts
+        self.codexOAuth = CodexOAuthCoordinator(accountStore: codexAccounts)
         self.enablement = enablement
         self.apiKeyProviders = apiKeyProviders
         self.notificationSettings = notificationSettings
@@ -168,6 +170,34 @@ final class AppContainer {
         FirstRunSeeder.reseed(providers: providers, enablement: enablement)
     }
 
+    func reloadCodexAccounts() {
+        let oldProviderIDs = Set(providers.map(\.provider.id))
+        let nextProviders = Self.makeProviders(codexAccounts: codexAccounts)
+        let nextRegistry = WidgetRegistry.from(nextProviders)
+        let nextProviderIDs = Set(nextProviders.map(\.provider.id))
+        let removedProviderIDs = oldProviderIDs.subtracting(nextProviderIDs)
+        let addedProviderIDs = nextProviderIDs.subtracting(oldProviderIDs)
+
+        providers = nextProviders
+        registry = nextRegistry
+        apiKeyProviders = nextProviders.compactMap { $0 as? any APIKeyManaging }
+        layout.updateRegistry(
+            nextRegistry,
+            defaultMetricIDs: Self.codexMetricIDs(for: nextProviders),
+            defaultPinnedMetricIDs: Self.codexPinnedMetricIDs(for: nextProviders),
+            defaultExpandedMetricIDs: Self.codexExpandedMetricIDs(for: nextProviders)
+        )
+        dataStore.updateRegistry(nextRegistry, providers: nextProviders, removedProviderIDs: removedProviderIDs)
+        enablement.registerKnownProviders(nextProviderIDs)
+        for id in addedProviderIDs where id == "codex" || id.hasPrefix("codex.") {
+            enablement.setEnabled(true, for: id)
+        }
+        Self.reconcileBrowserOnlyCodexEnablement(
+            hasBrowserCodexAccounts: !codexAccounts.visibleRecords().isEmpty,
+            enablement: enablement
+        )
+    }
+
     /// Drives live updates: refresh on launch, then again every refresh interval. Each pass honors the
     /// cache, so it only hits the network once a snapshot has actually expired. `@Observable` propagates
     /// the resulting snapshot changes to the menu-bar label and any open widgets, so the UI refreshes on
@@ -187,6 +217,89 @@ final class AppContainer {
                 await waitForNextRefresh()
             }
         }
+    }
+
+    private static func makeProviders(codexAccounts: CodexAccountStore) -> [ProviderRuntime] {
+        [
+            ClaudeProvider()
+        ] + codexAccounts.accountContexts().map { context in
+            CodexProvider(
+                providerID: context.record.providerID,
+                displayName: context.record.displayName,
+                authStore: context.authStore,
+                logUsageScanner: context.logUsageScanner
+            )
+        } + [
+            CursorProvider(),
+            AntigravityProvider(),
+            CopilotProvider(),
+            DevinProvider(),
+            GrokProvider(),
+            OpenRouterProvider(),
+            ZAIProvider()
+        ]
+    }
+
+    private static func defaultMetricIDs(for providers: [ProviderRuntime]) -> [String] {
+        DefaultLayout.metricIDs + codexMetricIDs(for: providers).filter { !DefaultLayout.metricIDs.contains($0) }
+    }
+
+    private static func defaultPinnedMetricIDs(for providers: [ProviderRuntime]) -> [String] {
+        DefaultLayout.pinnedMetricIDs + codexPinnedMetricIDs(for: providers).filter { !DefaultLayout.pinnedMetricIDs.contains($0) }
+    }
+
+    private static func defaultExpandedMetricIDs(for providers: [ProviderRuntime]) -> [String] {
+        DefaultLayout.expandedMetricIDs + codexExpandedMetricIDs(for: providers).filter { !DefaultLayout.expandedMetricIDs.contains($0) }
+    }
+
+    private static func codexMetricIDs(for providers: [ProviderRuntime]) -> [String] {
+        providers
+            .filter { $0.provider.id == "codex" || $0.provider.id.hasPrefix("codex.") }
+            .flatMap { provider in
+                [
+                    "\(provider.provider.id).session",
+                    "\(provider.provider.id).weekly",
+                    "\(provider.provider.id).spark",
+                    "\(provider.provider.id).sparkWeekly",
+                    "\(provider.provider.id).trend",
+                    "\(provider.provider.id).credits",
+                    "\(provider.provider.id).rateLimitResets",
+                    "\(provider.provider.id).today",
+                    "\(provider.provider.id).yesterday",
+                    "\(provider.provider.id).last30"
+                ]
+            }
+    }
+
+    private static func codexPinnedMetricIDs(for providers: [ProviderRuntime]) -> [String] {
+        providers
+            .filter { $0.provider.id == "codex" || $0.provider.id.hasPrefix("codex.") }
+            .flatMap { ["\($0.provider.id).session", "\($0.provider.id).weekly"] }
+    }
+
+    private static func codexExpandedMetricIDs(for providers: [ProviderRuntime]) -> [String] {
+        providers
+            .filter { $0.provider.id == "codex" || $0.provider.id.hasPrefix("codex.") }
+            .flatMap {
+                [
+                    "\($0.provider.id).spark",
+                    "\($0.provider.id).sparkWeekly",
+                    "\($0.provider.id).credits",
+                    "\($0.provider.id).rateLimitResets",
+                    "\($0.provider.id).today",
+                    "\($0.provider.id).yesterday",
+                    "\($0.provider.id).last30"
+                ]
+            }
+    }
+
+    static func reconcileBrowserOnlyCodexEnablement(hasBrowserCodexAccounts: Bool, enablement: ProviderEnablementStore) {
+        guard hasBrowserCodexAccounts,
+              enablement.enabledIDs?.contains(where: { $0.hasPrefix("codex.") }) == true,
+              !enablement.isEnabled("codex")
+        else { return }
+        enablement.registerKnownProviders(["codex"])
+        enablement.setEnabled(true, for: "codex")
     }
 
     /// Sleep for the refresh interval, but wake early when the user enables/disables a provider so a

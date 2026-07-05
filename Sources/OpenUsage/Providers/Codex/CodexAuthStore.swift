@@ -55,15 +55,15 @@ enum CodexAuthError: Error, LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .notLoggedIn:
-            return "Not logged in. Run `codex` to authenticate."
+            return "Not logged in. Add a Codex account in OpenUsage Settings."
         case .sessionExpired:
-            return "Session expired. Run `codex` to log in again."
+            return "Session expired. Add the Codex account again in OpenUsage Settings."
         case .tokenConflict:
-            return "Token conflict. Run `codex` to log in again."
+            return "Token conflict. Add the Codex account again in OpenUsage Settings."
         case .tokenRevoked:
-            return "Token revoked. Run `codex` to log in again."
+            return "Token revoked. Add the Codex account again in OpenUsage Settings."
         case .tokenExpired:
-            return "Token expired. Run `codex` to log in again."
+            return "Token expired. Add the Codex account again in OpenUsage Settings."
         case .usageAPIKey:
             return "Usage not available for API key."
         case .invalidAuthPayload:
@@ -82,7 +82,8 @@ enum CodexAuthError: Error, LocalizedError, Equatable {
 }
 
 struct CodexAuthStore: Sendable {
-    static let keychainService = "Codex Auth"
+    static let defaultKeychainService = "Codex Auth"
+    static let keychainService = defaultKeychainService
     /// Refresh once the access token is within this window of its JWT `exp` — the same 5-minute slack
     /// the `codex` CLI itself uses, so OpenUsage rotates on the same schedule rather than guessing.
     static let accessTokenRefreshWindow: TimeInterval = 5 * 60
@@ -93,16 +94,22 @@ struct CodexAuthStore: Sendable {
     var files: TextFileAccessing
     var keychain: KeychainAccessing
     var now: @Sendable () -> Date
+    var authPathsOverride: [String]?
+    var keychainService: String
 
     init(
         environment: EnvironmentReading = ProcessEnvironmentReader(),
         files: TextFileAccessing = LocalTextFileAccessor(),
         keychain: KeychainAccessing = SecurityKeychainAccessor(),
+        authPathsOverride: [String]? = nil,
+        keychainService: String = Self.defaultKeychainService,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.environment = environment
         self.files = files
         self.keychain = keychain
+        self.authPathsOverride = authPathsOverride
+        self.keychainService = keychainService
         self.now = now
     }
 
@@ -137,7 +144,7 @@ struct CodexAuthStore: Sendable {
     }
 
     func loadKeychainAuth() -> CodexAuthState? {
-        guard let value = try? keychain.readGenericPassword(service: Self.keychainService),
+        guard let value = try? keychain.readGenericPassword(service: keychainService),
               let auth = Self.parseAuth(value),
               Self.hasTokenLikeAuth(auth)
         else {
@@ -158,7 +165,7 @@ struct CodexAuthStore: Sendable {
         case .file(let path):
             try files.writeText(path, text)
         case .keychain:
-            try keychain.writeGenericPassword(service: Self.keychainService, value: text)
+            try keychain.writeGenericPassword(service: keychainService, value: text)
         }
     }
 
@@ -192,6 +199,9 @@ struct CodexAuthStore: Sendable {
     }
 
     func authPaths() -> [String] {
+        if let authPathsOverride {
+            return authPathsOverride
+        }
         if let codexHome = codexHome() {
             return [joinPath(codexHome, Self.authFile)]
         }
@@ -228,4 +238,3 @@ private extension CodexAuthState.Source {
         return false
     }
 }
-
