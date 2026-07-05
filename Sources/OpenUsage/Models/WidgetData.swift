@@ -325,16 +325,19 @@ struct WidgetData: Hashable {
         return "\(valueText) \(word)"
     }
 
-    /// A soonest-expiry inside this window flips the row to a warning state (the ⚠ triangle next to the
-    /// count) — a reset credit you're about to lose if you don't use it.
-    static let expiryWarningWindow: TimeInterval = 24 * 60 * 60
+    /// Color bands for reset-credit expiries: blue normally, amber under a week, red under 48 hours.
+    /// A past-due expiry remains critical until the next refresh drops it from the available list.
+    static let expiryWarningWindow: TimeInterval = 7 * 24 * 60 * 60
+    static let expiryCriticalWindow: TimeInterval = 48 * 60 * 60
 
-    /// True when the soonest still-available reset credit expires within `expiryWarningWindow` (a past-due
-    /// one counts too). Drives the row's warning triangle; recomputes on the popover's 30s tick because
+    /// Visual status for rows carrying reset-credit expiries. Recomputes on the popover's 30s tick because
     /// the row keeps ticking while it carries expiries.
-    var hasImminentExpiry: Bool {
-        guard hasData, let soonest = expiriesAt.min() else { return false }
-        return soonest.timeIntervalSince(Date()) <= Self.expiryWarningWindow
+    func expirySeverity(now: Date = Date()) -> MeterSeverity? {
+        guard hasData, let soonest = expiriesAt.min() else { return nil }
+        let timeRemaining = soonest.timeIntervalSince(now)
+        if timeRemaining <= Self.expiryCriticalWindow { return .critical }
+        if timeRemaining <= Self.expiryWarningWindow { return .warning }
+        return .normal
     }
 
     /// Hover tooltip for a row carrying expiry instants (the Codex reset-credit row, "2 available"):

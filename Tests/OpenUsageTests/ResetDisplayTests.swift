@@ -123,27 +123,32 @@ final class ResetDisplayTests: XCTestCase {
         XCTAssertEqual(data.expiryTooltip, "Resets expire in:\n1. 12d 18h\n2. 22d 12h")
     }
 
-    func testHasImminentExpiryTracksWarningWindow() {
-        // The warning triangle fires when the soonest credit expires within `expiryWarningWindow`.
-        // Anchored to the constant so it survives the eventual 21d→24h revert.
+    func testExpirySeverityTracksSoonestExpiry() {
+        // The reset-credit dot reflects the soonest expiry: blue normally, yellow under 7 days, red under
+        // 48 hours.
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
         var data = WidgetData(title: "Rate Limit Resets", icon: .symbol("clock"),
                               kind: .count, used: 0, limit: nil)
         data.values = [MetricValue(number: 2, kind: .count, label: "available")]
 
-        // Soonest just inside the window → warning (even though a later credit is well outside it).
+        // Soonest under 48 hours -> red, even though a later credit is well outside it.
         data.expiriesAt = [
-            Date().addingTimeInterval(WidgetData.expiryWarningWindow - 3600),
-            Date().addingTimeInterval(WidgetData.expiryWarningWindow + 10 * 24 * 3600)
+            now.addingTimeInterval(WidgetData.expiryCriticalWindow - 3600),
+            now.addingTimeInterval(WidgetData.expiryWarningWindow + 10 * 24 * 3600)
         ]
-        XCTAssertTrue(data.hasImminentExpiry)
+        XCTAssertEqual(data.expirySeverity(now: now), .critical)
 
-        // Every credit comfortably outside the window → no warning.
-        data.expiriesAt = [Date().addingTimeInterval(WidgetData.expiryWarningWindow + 24 * 3600)]
-        XCTAssertFalse(data.hasImminentExpiry)
+        // Under 7 days but outside 48 hours -> yellow.
+        data.expiriesAt = [now.addingTimeInterval(WidgetData.expiryCriticalWindow + 3600)]
+        XCTAssertEqual(data.expirySeverity(now: now), .warning)
 
-        // No expiries at all → no warning.
+        // Every credit comfortably outside the warning window -> blue.
+        data.expiriesAt = [now.addingTimeInterval(WidgetData.expiryWarningWindow + 24 * 3600)]
+        XCTAssertEqual(data.expirySeverity(now: now), .normal)
+
+        // No expiries at all -> no dot.
         data.expiriesAt = []
-        XCTAssertFalse(data.hasImminentExpiry)
+        XCTAssertNil(data.expirySeverity(now: now))
     }
 
     func testNoExpiryTooltipWhenNoExpiries() {

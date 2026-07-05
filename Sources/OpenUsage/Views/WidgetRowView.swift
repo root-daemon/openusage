@@ -269,7 +269,7 @@ struct WidgetRowView: View {
             Spacer(minLength: 12)
             VStack(alignment: .trailing, spacing: 2) {
                 HStack(spacing: 4) {
-                    expiryWarningIcon
+                    expiryStatusDot
                     Text(data.unboundedDetail)
                         .font(supportingFont)
                         .foregroundStyle(.primary) // the value is the row's payload — match the bounded headline
@@ -329,17 +329,25 @@ struct WidgetRowView: View {
         }
     }
 
-    /// Amber warning triangle shown just before the value when a reset credit is about to expire
-    /// (`hasImminentExpiry`). Carries the same expiry tooltip as the value, so hovering it reveals which
-    /// credits are expiring and when. Renders nothing otherwise.
+    /// Small blue/yellow/red status dot shown just before the value when the row carries reset-credit
+    /// expiries. Carries the same expiry tooltip as the value, so hovering it reveals which credits are
+    /// expiring and when. Renders nothing otherwise.
     @ViewBuilder
-    private var expiryWarningIcon: some View {
-        if data.hasImminentExpiry {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: density.supportingPointSize - 1))
-                .foregroundStyle(severityColor(.warning))
+    private var expiryStatusDot: some View {
+        if let severity = data.expirySeverity() {
+            Circle()
+                .fill(severityColor(severity))
+                .frame(width: 6, height: 6)
                 .hoverTooltip(data.unboundedValueTooltip)
-                .accessibilityLabel("A reset credit is expiring soon")
+                .accessibilityLabel(expiryStatusAccessibilityLabel(severity))
+        }
+    }
+
+    private func expiryStatusAccessibilityLabel(_ severity: WidgetData.MeterSeverity) -> String {
+        switch severity {
+        case .normal: return "Reset credits expire in more than 7 days"
+        case .warning: return "A reset credit expires within 7 days"
+        case .critical: return "A reset credit expires within 48 hours"
         }
     }
 
