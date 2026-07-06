@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.4-beta.2
+
+### Bug Fixes
+- Disable hover tooltips in share-card renders by @robinebers
+
+---
+
+### Changelog
+**Full Changelog**: [v0.7.4-beta.1...v0.7.4-beta.2](https://github.com/robinebers/openusage/compare/v0.7.4-beta.1...v0.7.4-beta.2)
+
+- [141bf53](https://github.com/robinebers/openusage/commit/141bf5311fd3c528e61606c6fe9641f8173f7957) fix(share): disable hover tooltips in share-card renders by @robinebers
+
 ## v0.7.4-beta.1
 
 ### New Features
