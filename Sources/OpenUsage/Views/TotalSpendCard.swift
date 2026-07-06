@@ -1,14 +1,14 @@
 import AppKit
-import Charts
 import SwiftUI
 
 /// The dashboard's cross-provider Total Spend section: a native segmented period picker
 /// (Today / Yesterday / Last 30 Days) over a donut ring whose segments are each provider's share of
 /// the period's spend, with the total in the center and a ranked legend beside it. Data comes from
 /// `TotalSpendAggregator` over the same snapshots the provider cards render, so the ring always
-/// matches the per-provider spend tiles. Shown only when at least two providers have spend data
-/// (see `TotalSpendAggregator.hasCrossProviderSpend`) — a one-provider "total" would just repeat
-/// that provider's own rows.
+/// matches the per-provider spend tiles. Shown whenever any enabled provider tracks spend
+/// (`LayoutStore.hasSpendCapableProvider`) and the toggle at the top of Settings is on; a period
+/// (or a fresh install) with no priced usage shows the "No spend data" state instead of hiding
+/// the card.
 struct TotalSpendCard: View {
     @Environment(LayoutStore.self) private var layout
     @Environment(WidgetDataStore.self) private var dataStore
@@ -55,6 +55,10 @@ struct TotalSpendCard: View {
                 .font(.system(size: density.headerPointSize, weight: .semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
+            Image(systemName: "info.circle")
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+                .hoverTooltip("Only includes Claude, Codex, Cursor and Grok.")
             Spacer(minLength: 8)
             shareButton
         }
@@ -164,12 +168,14 @@ struct TotalSpendCard: View {
 /// from what's on screen. Slices come ranked largest-first from the aggregator, so the ring reads
 /// clockwise from 12 o'clock in the same order the legend reads top-down.
 ///
-/// A period switch **crossfades** the ring (the chart is identity-keyed on the period) instead of
-/// morphing the arcs. Ranked sector order and arc morphing are fundamentally incompatible in Swift
-/// Charts: the morph matches sectors by array position, so any re-sort smears one provider's arc
-/// into another's color mid-animation. Fixed-order morphing was tried and rejected — spend ranking
-/// matters more here — and a crossfade is how ranking-first charts (Screen Time among them) handle
-/// period switches.
+/// A period switch **morphs** the arcs: each provider's slice slides and resizes to its new share.
+/// Swift Charts' `SectorMark` can't do this — it matches sectors by array position when animating,
+/// so any re-sort smears one provider's arc into another's color mid-morph (there is no identity
+/// hook for sectors). The ring therefore draws its own sectors: one `RingSectorShape` per provider,
+/// identity-keyed by provider ID, with the start/end angles as `animatableData`. SwiftUI animates
+/// each provider's own arc, and the color can't swap because each arc view owns its provider's
+/// color. The shape reproduces the SectorMark look — golden-ratio hole, hairline gaps, rounded
+/// sector corners — so nothing changes visually at rest.
 struct TotalSpendRingContent: View {
     let total: TotalSpend
 
@@ -180,7 +186,6 @@ struct TotalSpendRingContent: View {
     var body: some View {
         HStack(spacing: 18) {
             ring
-                .id(total.period)
             legend
         }
     }
@@ -192,40 +197,44 @@ struct TotalSpendRingContent: View {
     /// center total keep the true dollars.
     private static let minimumSliceShare = 0.025
 
-    /// A Swift Charts donut — `SectorMark` with the WWDC-demonstrated styling (golden-ratio hole,
-    /// small angular inset, rounded sector corners) — instead of hand-trimmed circle strokes, so the
-    /// chart matches the system's own pie/donut look.
-    ///
     private var ring: some View {
-        Chart(total.slices) { slice in
-            SectorMark(
-                angle: .value("Spend", plottedShare(for: slice)),
-                innerRadius: .ratio(0.618),
-                angularInset: 0.8
-            )
-            .cornerRadius(3)
-            .foregroundStyle(TotalSpendPalette.color(for: slice.provider.id))
-        }
-        .chartLegend(.hidden)
-        .chartBackground { proxy in
-            GeometryReader { geometry in
-                if let anchor = proxy.plotFrame {
-                    let frame = geometry[anchor]
-                    centerLabel
-                        .position(x: frame.midX, y: frame.midY)
-                }
+        ZStack {
+            // Identity is the provider ID: a provider that exists in both periods keeps its view,
+            // so a period switch animates that arc's angles. A provider entering or leaving the
+            // period fades in/out (the default transition) while the survivors re-flow around it.
+            ForEach(arcs) { arc in
+                RingSectorShape(startFraction: arc.start, endFraction: arc.end)
+                    .fill(TotalSpendPalette.color(for: arc.providerID))
             }
+            centerLabel
         }
         .frame(width: Self.ringDiameter, height: Self.ringDiameter)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Total spend \(MetricFormatter.number(total.totalUSD, kind: .dollars, style: .full)) across \(total.slices.count) providers")
     }
 
-    /// The slice's angular share with the minimum floor applied. Floors are absorbed by the biggest
-    /// spenders via the normalization SectorMark does anyway, so the ring still sums to a full circle.
-    private func plottedShare(for slice: TotalSpendSlice) -> Double {
-        guard total.totalUSD > 0 else { return 0 }
-        return max(slice.amountUSD / total.totalUSD, Self.minimumSliceShare)
+    private struct RingArc: Identifiable, Equatable {
+        let providerID: String
+        var start: Double
+        var end: Double
+
+        var id: String { providerID }
+    }
+
+    /// The ranked slices as cumulative ring fractions, with the minimum-sliver floor applied and the
+    /// result renormalized so the ring always closes exactly (SectorMark used to normalize for us).
+    private var arcs: [RingArc] {
+        guard total.totalUSD > 0 else { return [] }
+        let floored = total.slices.map { max($0.amountUSD / total.totalUSD, Self.minimumSliceShare) }
+        let sum = floored.reduce(0, +)
+        guard sum > 0 else { return [] }
+
+        var cursor = 0.0
+        return zip(total.slices, floored).map { slice, share in
+            let width = share / sum
+            defer { cursor += width }
+            return RingArc(providerID: slice.provider.id, start: cursor, end: cursor + width)
+        }
     }
 
     /// Just the total, quiet and centered — the legend right next to it already says who and how
@@ -271,10 +280,12 @@ struct TotalSpendRingContent: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
             Spacer(minLength: 8)
-            Text(MetricFormatter.number(slice.amountUSD, kind: .dollars, style: .row))
+            // Exact to the cent — the compact form already lives in the ring's center.
+            Text(MetricFormatter.number(slice.amountUSD, kind: .dollars, style: .full))
                 .font(.system(size: density.supportingPointSize, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
+                .lineLimit(1)
         }
     }
 }
@@ -288,8 +299,8 @@ struct TotalSpendRingContent: View {
 enum TotalSpendPalette {
     private static let byProviderID: [String: Color] = [
         "claude": hex(0xDE7356),                             // Claude terracotta
-        "codex": hex(0x74AA9C),                              // OpenAI green
-        "cursor": dynamic(light: 0x1D1D1F, dark: 0xF5F5F7),  // brand black, adaptive
+        "codex": hex(0x10A37F),                              // OpenAI green (#10A37F)
+        "cursor": dynamic(light: 0x13120A, dark: 0xF5F5F7),  // brand black (#13120A), flipped near-white in dark mode
         "grok": dynamic(light: 0x8E8E93, dark: 0x98989D),    // brand black, offset to gray next to Cursor
         "openrouter": hex(0x6467F2),                         // OpenRouter indigo
         "antigravity": hex(0x4285F4),                        // Google blue

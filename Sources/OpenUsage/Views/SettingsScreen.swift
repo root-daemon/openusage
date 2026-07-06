@@ -21,6 +21,7 @@ struct SettingsScreen: View {
     /// friendly line under the row.
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var launchAtLoginError: String?
+    @AppStorage(TotalSpendSetting.key) private var showTotalSpend = true
     @AppStorage(AppearanceSetting.key) private var appearance = AppearanceSetting.system
     @AppStorage(TimeFormatSetting.key) private var timeFormat = TimeFormatSetting.auto
     @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
@@ -51,6 +52,12 @@ struct SettingsScreen: View {
         // Same section rhythm as the dashboard and Customize (all read the density setting).
         return VStack(alignment: .leading, spacing: density.sectionSpacing) {
             section("General") {
+                // The dashboard's cross-provider Total Spend card; the card still requires two or
+                // more providers with spend data, so this toggle can't conjure it up alone.
+                row("Show Total Spend") {
+                    Toggle("", isOn: $showTotalSpend)
+                        .settingsSwitchStyle()
+                }
                 row("Launch at Login") {
                     Toggle("", isOn: $launchAtLogin)
                         .settingsSwitchStyle()

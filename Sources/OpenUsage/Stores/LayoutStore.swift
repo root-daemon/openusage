@@ -304,6 +304,15 @@ final class LayoutStore {
         placed.contains { $0.descriptorID == descriptorID }
     }
 
+    /// Whether any enabled provider ships the local spend tiles — the capability gate for the
+    /// Total Spend card. Keyed off the descriptor registry (`<provider>.today`, see
+    /// `WidgetDescriptor.spendTiles`), not off refreshed data, so the card can show its "No spend
+    /// data" state on a fresh morning instead of vanishing; and independent of whether the user
+    /// keeps the spend rows themselves visible.
+    var hasSpendCapableProvider: Bool {
+        registry.descriptors.contains { $0.id.hasSuffix(".today") && isProviderEnabled($0.providerID) }
+    }
+
     // MARK: - Provider grouping
 
     /// Known providers in the user's saved order, with any not-yet-seen provider appended in registry order

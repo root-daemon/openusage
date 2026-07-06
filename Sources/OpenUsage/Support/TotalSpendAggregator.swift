@@ -78,16 +78,4 @@ enum TotalSpendAggregator {
         }
         return TotalSpend(period: period, slices: ranked)
     }
-
-    /// Whether the aggregate card has a story to tell: at least two providers contribute to at least
-    /// one period. With a single spend-tracking provider the "total" would just repeat that provider's
-    /// own rows, so the card stays hidden.
-    static func hasCrossProviderSpend(
-        providers: [Provider],
-        snapshots: [String: ProviderSnapshot]
-    ) -> Bool {
-        TotalSpendPeriod.allCases.contains { period in
-            total(for: period, providers: providers, snapshots: snapshots).slices.count >= 2
-        }
-    }
 }

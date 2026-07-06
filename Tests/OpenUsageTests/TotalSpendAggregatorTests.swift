@@ -2,8 +2,7 @@ import XCTest
 @testable import OpenUsage
 
 /// Covers the Total Spend card's aggregation rules: which providers contribute to a period's total,
-/// how slices rank, when the combined number counts as estimated, and when the card has enough
-/// cross-provider data to appear at all.
+/// how slices rank, and when the combined number counts as estimated.
 final class TotalSpendAggregatorTests: XCTestCase {
     private let claude = Provider(id: "claude", displayName: "Claude", icon: .providerMark("claude"))
     private let codex = Provider(id: "codex", displayName: "Codex", icon: .providerMark("codex"))
@@ -71,18 +70,4 @@ final class TotalSpendAggregatorTests: XCTestCase {
         XCTAssertTrue(total.isEstimated)
     }
 
-    func testHasCrossProviderSpendRequiresTwoContributorsInSomePeriod() {
-        let onlyOne = ["claude": snapshot(claude, lines: [spendLine("Today", dollars: 5.00)])]
-        XCTAssertFalse(TotalSpendAggregator.hasCrossProviderSpend(providers: [claude, cursor], snapshots: onlyOne))
-
-        // Two contributors in Last 30 Days is enough, even with a lone provider today.
-        let two = [
-            "claude": snapshot(claude, lines: [
-                spendLine("Today", dollars: 5.00),
-                spendLine("Last 30 Days", dollars: 40.00)
-            ]),
-            "cursor": snapshot(cursor, lines: [spendLine("Last 30 Days", dollars: 12.00)])
-        ]
-        XCTAssertTrue(TotalSpendAggregator.hasCrossProviderSpend(providers: [claude, cursor], snapshots: two))
-    }
 }

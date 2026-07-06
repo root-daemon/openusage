@@ -52,6 +52,7 @@ struct DashboardView: View {
     @State private var isPresentingResetAllConfirm = false
     /// Row rhythm tracks the global density setting live.
     @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
+    @AppStorage(TotalSpendSetting.key) private var showTotalSpend = true
 
     private static let outerPadding: CGFloat = 14
     /// Breathing room between the bottom of the scrolling content and the pinned footer. Kept small
@@ -493,13 +494,11 @@ struct DashboardView: View {
                 .padding(.vertical, 24)
                 .padding(.horizontal, 16)
         } else {
-            // The cross-provider Total Spend ring tops the provider sections, but only when it has a
-            // real aggregate to show (two or more providers with spend for some period) — with a single
-            // spend-tracking provider it would just repeat that provider's own rows.
-            if TotalSpendAggregator.hasCrossProviderSpend(
-                providers: layout.displayGroups.map(\.provider),
-                snapshots: dataStore.snapshots
-            ) {
+            // The cross-provider Total Spend ring tops the provider sections whenever the user hasn't
+            // hidden it (Settings → General) and any enabled provider is capable of tracking spend.
+            // The gate is capability, not data: a fresh morning or a lone provider shows the card
+            // with its ring or "No spend data" state rather than silently vanishing.
+            if showTotalSpend, layout.hasSpendCapableProvider {
                 TotalSpendCard()
                     .padding(.bottom, density.sectionSpacing)
             }
