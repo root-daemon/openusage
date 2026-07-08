@@ -129,10 +129,6 @@ final class WidgetDataStore {
             snapshots = snapshots.filter { !removedProviderIDs.contains($0.key) }
             providerErrors = providerErrors.filter { !removedProviderIDs.contains($0.key) }
             failureRetryAfter = failureRetryAfter.filter { !removedProviderIDs.contains($0.key) }
-            notificationState = notificationState.filter { key, _ in
-                guard let providerID = key.split(separator: ".").first.map(String.init) else { return true }
-                return !removedProviderIDs.contains(providerID)
-            }
         }
     }
 
