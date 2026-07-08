@@ -11,7 +11,7 @@ import SwiftUI
 /// surface behind it — the system `.buttonStyle(.glass)` renders flat on a `Menu` (its own button
 /// chrome wins), so the glass goes on the container. It falls back to a frosted material capsule on
 /// macOS 15. The menu renders in its own `NSMenu`-backed window, which
-/// `StatusItemController.shouldKeepPanelOpen` keeps the popover open for.
+/// the panel's outside-click policy keeps the popover open for.
 ///
 /// Only the dashboard shows this; the Customize and Settings screens carry their own top-leading back
 /// button (`DashboardView.navBar`) to return home — the macOS-native place for it — so the footer

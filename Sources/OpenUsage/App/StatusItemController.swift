@@ -33,13 +33,17 @@ final class StatusItemController: NSObject {
     private let imageUpdater: StatusItemImageUpdater
     private let panel: MenuBarPanel
     private let heightController: PanelHeightController
+    private lazy var outsideClickMonitor = PanelOutsideClickMonitor(
+        panel: panel,
+        statusItem: statusItem,
+        isMorphing: { [weak self] in self?.heightController.isMorphing ?? false },
+        onInsidePanelClick: { [weak self] in self?.clearStrayFocus() },
+        onDismiss: { [weak self] in self?.hidePanel() }
+    )
     private let hostingController: NSHostingController<AnyView>
     /// The panel's backdrop: an opaque tray by default, swapped to a behind-window vibrancy view when
     /// the transparency style is non-opaque. Built once and toggled, so it can't race the style observer.
     private let backdrop = PopoverBackdropView(cornerRadius: StatusItemController.cornerRadius)
-    /// Closes the panel on clicks outside it (the panel is non-activating and dismissal is ours to
-    /// implement, the same model the old `.applicationDefined` popover used).
-    private var outsideClickMonitors: [Any] = []
     /// Token for the appearance-change observer; held to follow the documented removal pattern.
     private var appearanceObserver: NSObjectProtocol?
     /// Corner radius of the panel surface; tuned to read like a system menu-bar popover.
@@ -321,7 +325,7 @@ final class StatusItemController: NSObject {
         // monitor, not first responder), and Tab from here focuses the first control as expected.
         clearStrayFocus()
         button.highlight(true)
-        startOutsideClickMonitors()
+        outsideClickMonitor.start()
     }
 
     private func hidePanel() {
@@ -342,7 +346,7 @@ final class StatusItemController: NSObject {
         // popover is hidden). This is the authoritative hide signal, flipped synchronously with `orderOut`.
         container.transparency.setPopoverShown(false)
         panel.orderOut(nil)
-        stopOutsideClickMonitors()
+        outsideClickMonitor.stop()
         statusItem.button?.highlight(false)
         heightController.finishClosing()
     }
@@ -358,88 +362,4 @@ final class StatusItemController: NSObject {
         panel.makeFirstResponder(nil)
     }
 
-    // MARK: - Outside-click dismissal
-
-    private func startOutsideClickMonitors() {
-        stopOutsideClickMonitors()
-        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
-            // NSEvent is not Sendable: pull the window identity out before hopping to the actor.
-            let windowID = event.window.map(ObjectIdentifier.init)
-            let windowTypeName = event.window.map { String(describing: type(of: $0)) }
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                // `NSEvent.mouseLocation` is the dependable screen-coordinate read (`locationInWindow`
-                // is unreliable for windowless / global events), so the status-button match is correct.
-                let screenPoint = NSEvent.mouseLocation
-                guard !self.shouldKeepPanelOpen(windowID: windowID, windowTypeName: windowTypeName, screenPoint: screenPoint)
-                else {
-                    // Click landed inside the panel: drop any stray focus ring a previously-clicked
-                    // toggle left behind, the way clicking empty space in a normal window does. The
-                    // monitor fires before the event reaches the view, so a click that lands on
-                    // another control just moves focus there next; empty space leaves it cleared.
-                    if self.panel.frame.contains(screenPoint) { self.clearStrayFocus() }
-                    return
-                }
-                self.hidePanel()
-            }
-            return event
-        }) {
-            outsideClickMonitors.append(local)
-        }
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
-            // Capture the click location NOW: `mouseLocation` read later (inside the Task) could be
-            // stale if the pointer moved before the hop, mis-deciding the status-button / in-panel
-            // checks. `NSPoint` is Sendable, so the captured value crosses into the Task safely.
-            let screenPoint = NSEvent.mouseLocation
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                // A global monitor only fires for clicks in OTHER apps, so there's no in-process window
-                // to identify — the shared keep-open policy decides on position alone (mid-morph frame,
-                // an attached sheet, the status button, or the panel frame). Passing nil window info is
-                // the accurate input, and reusing `shouldKeepPanelOpen` keeps the two monitors in step.
-                guard !self.shouldKeepPanelOpen(windowID: nil, windowTypeName: nil, screenPoint: screenPoint)
-                else { return }
-                self.hidePanel()
-            }
-        }) {
-            outsideClickMonitors.append(global)
-        }
-    }
-
-    private func stopOutsideClickMonitors() {
-        for monitor in outsideClickMonitors {
-            NSEvent.removeMonitor(monitor)
-        }
-        outsideClickMonitors = []
-    }
-
-    /// In-app clicks that must not dismiss: anything inside the panel itself, the status-item button
-    /// (its own handler toggles — closing here too would cancel it out and reopen), and menu windows
-    /// (the Settings pickers' popup menus and the footer's More menu render in separate `NSMenu`-backed
-    /// windows). Status-item clicks can arrive with no window (the menu bar is composited by the Window
-    /// Server), so the button is also matched by screen position.
-    private func shouldKeepPanelOpen(windowID: ObjectIdentifier?, windowTypeName: String?, screenPoint: NSPoint) -> Bool {
-        // The frame is moving mid-morph; a hit-test against it would be racy, so keep the panel open.
-        if heightController.isMorphing { return true }
-        // A sheet is attached to the panel (e.g. the Customize "Reset All Customization" confirmation
-        // alert). Its buttons live in a child window whose own `event.window` is the sheet, not the
-        // panel — without this guard a click on "Reset All" / "Cancel" reads as an outside click and
-        // dismisses the popover out from under the alert. Keep the panel open for the sheet's lifetime.
-        if panel.attachedSheet != nil { return true }
-        if isOnStatusButton(screenPoint: screenPoint) { return true }
-        if panel.frame.contains(screenPoint) { return true }
-        guard let windowID, let windowTypeName else { return false }
-        if windowID == ObjectIdentifier(panel) { return true }
-        if let buttonWindow = statusItem.button?.window, windowID == ObjectIdentifier(buttonWindow) {
-            return true
-        }
-        return windowTypeName.localizedCaseInsensitiveContains("menu")
-    }
-
-    private func isOnStatusButton(screenPoint: NSPoint) -> Bool {
-        guard let button = statusItem.button, let buttonWindow = button.window else { return false }
-        let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
-        return buttonFrame.contains(screenPoint)
-    }
 }
