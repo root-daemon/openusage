@@ -58,6 +58,12 @@ actor IncrementalJSONLScanner<Item: Sendable> {
     }
 
     private var cache: [String: CachedFile] = [:]
+    private let maxConcurrentParses: Int
+
+    init(maxConcurrentParses: Int = 8) {
+        precondition(maxConcurrentParses > 0)
+        self.maxConcurrentParses = maxConcurrentParses
+    }
 
     /// Re-parse the in-window files (reusing the cache on an unchanged path + size + mtime), then return
     /// every file's items concatenated in the input order — callers pass a path-sorted list so a
@@ -79,7 +85,11 @@ actor IncrementalJSONLScanner<Item: Sendable> {
                 toParse.append(file)
             }
         }
-        for (file, parsed) in await Self.parseFiles(toParse, parse: parse) {
+        for (file, parsed) in await Self.parseFiles(
+            toParse,
+            maxConcurrentParses: maxConcurrentParses,
+            parse: parse
+        ) {
             guard let parsed else { continue }
             nextCache[file.path] = CachedFile(size: file.size, mtime: file.mtime, items: parsed)
         }
@@ -93,15 +103,16 @@ actor IncrementalJSONLScanner<Item: Sendable> {
         return items
     }
 
-    /// Read + parse the changed files in parallel (they're independent; the first scan of a heavy tree
-    /// is CPU-bound on JSON decoding). Results are keyed back to the input order; a `nil` item list
-    /// marks an unreadable file.
+    /// Read + parse a bounded number of changed files in parallel. Results are keyed back to the input
+    /// order; a `nil` item list marks an unreadable file.
     private static func parseFiles(
         _ files: [JSONLScanning.DiscoveredFile],
+        maxConcurrentParses: Int,
         parse: @Sendable @escaping (Data) -> [Item]?
     ) async -> [(JSONLScanning.DiscoveredFile, [Item]?)] {
         await withTaskGroup(of: (Int, [Item]?).self, returning: [(JSONLScanning.DiscoveredFile, [Item]?)].self) { group in
-            for (index, file) in files.enumerated() {
+            func addTask(at index: Int) {
+                let file = files[index]
                 group.addTask {
                     guard let data = FileManager.default.contents(atPath: file.path) else {
                         return (index, nil)
@@ -109,9 +120,21 @@ actor IncrementalJSONLScanner<Item: Sendable> {
                     return (index, parse(data))
                 }
             }
+
+            var nextIndex = 0
+            let initialCount = min(maxConcurrentParses, files.count)
+            for index in 0..<initialCount {
+                addTask(at: index)
+                nextIndex += 1
+            }
+
             var results: [(JSONLScanning.DiscoveredFile, [Item]?)] = files.map { ($0, nil) }
             for await (index, items) in group {
                 results[index] = (files[index], items)
+                if nextIndex < files.count {
+                    addTask(at: nextIndex)
+                    nextIndex += 1
+                }
             }
             return results
         }
