@@ -6,7 +6,7 @@ final class CodexProvider: ProviderRuntime {
 
     let authStore: CodexAuthStore
     let usageClient: CodexUsageClient
-    let logUsageScanner: CodexLogUsageScanner
+    let logUsageScanner: CodexLogUsageScanner?
     let now: @Sendable () -> Date
     let pricing: @Sendable () async -> ModelPricing
 
@@ -15,7 +15,7 @@ final class CodexProvider: ProviderRuntime {
         displayName: String = "Codex",
         authStore: CodexAuthStore = CodexAuthStore(),
         usageClient: CodexUsageClient = CodexUsageClient(),
-        logUsageScanner: CodexLogUsageScanner = CodexLogUsageScanner(),
+        logUsageScanner: CodexLogUsageScanner? = CodexLogUsageScanner(),
         now: @escaping @Sendable () -> Date = Date.init,
         pricing: @escaping @Sendable () async -> ModelPricing = { await ModelPricingStore.shared.current() }
     ) {
@@ -130,7 +130,7 @@ final class CodexProvider: ProviderRuntime {
 
         // Local spend tiles, scanned natively from the Codex CLI's session rollouts and priced
         // through the shared pricing store. `scan` runs on the scanner actor, off the main actor.
-        if let scan = await logUsageScanner.scan(now: now(), pricing: pricing()) {
+        if let scan = await logUsageScanner?.scan(now: now(), pricing: pricing()) {
             SpendTileMapper.appendTokenUsage(
                 scan.series, to: &mapped.lines, now: now(),
                 unknownModelsByDay: scan.unknownModelsByDay,

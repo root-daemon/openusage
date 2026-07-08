@@ -20,7 +20,7 @@ struct CodexAccountRecord: Codable, Hashable, Identifiable, Sendable {
 struct CodexAccountContext: Sendable {
     var record: CodexAccountRecord
     var authStore: CodexAuthStore
-    var logUsageScanner: CodexLogUsageScanner
+    var logUsageScanner: CodexLogUsageScanner?
 }
 
 @MainActor
@@ -141,7 +141,7 @@ final class CodexAccountStore {
                 authPathsOverride: [],
                 keychainService: record.keychainService ?? managedService(identity: record.identity)
             ),
-            logUsageScanner: CodexLogUsageScanner(environment: environment, homeDirectory: homeDirectory)
+            logUsageScanner: record.providerID == "codex" ? CodexLogUsageScanner(environment: environment, homeDirectory: homeDirectory) : nil
         )
     }
 
