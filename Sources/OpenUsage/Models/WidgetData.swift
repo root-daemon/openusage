@@ -36,6 +36,11 @@ struct WidgetData: Hashable {
     /// credits — one entry per still-available credit). Empty for every other row. Kept as raw `Date`s so
     /// the tooltip formats live and follows the global relative/absolute mode (see `expiryTooltip`).
     var expiriesAt: [Date] = []
+    /// Descriptor opt-in marking this as the Codex rate-limit-reset-credits row. When set, the value
+    /// column reveals the resets popover on hover (a timeline of each credit's expiry, or an empty
+    /// state when none are available) and lights up like the spend rows — so it stays reachable even
+    /// at "0 available", where `expiriesAt` is empty. Off for every other row.
+    var showsResetExpiries: Bool = false
     /// Names of models this period's spend used that the pricing manifest can't price. Their tokens are
     /// counted but their cost is incomplete, so the period's dollar figure can be understated.
     /// Drives the label warning triangle and its hover list. Empty for every other row.
@@ -74,6 +79,14 @@ struct WidgetData: Hashable {
     /// they leave this false and never get the "No usage in this period" note. Set by the spend-tile
     /// factory; rides the descriptor sample through `WidgetDataStore.resolve`.
     var isUsagePeriod: Bool = false
+    /// A tray-only unit word appended after this tile's menu-bar value for an unbounded count (e.g. Codex
+    /// Rate Limit Resets → "2 resets"). Set by the descriptor, so renaming the tile can't silently drop
+    /// the suffix — replaces matching on the tile's title. `nil` for tiles that show the bare value.
+    var traySuffix: String?
+    /// Session-window meters (Codex/Claude/Antigravity 5-hour pools) that read "Not started" when unused.
+    /// Set by those descriptors and carried through `WidgetDataStore.resolve`, so the "fresh window"
+    /// treatment is a descriptor opt-in rather than a hardcoded widget-ID list in the model.
+    var isSessionWindow: Bool = false
     /// Per-day points for a Usage Trend row (empty for every other tile). Set true `isChart` flags the
     /// row so the view draws the sparkline instead of the value layout; `chartNote` is the source line
     /// shown on hover (e.g. "From your Claude usage history (estimated)").
@@ -233,8 +246,8 @@ struct WidgetData: Hashable {
             return MetricFormatter.number(displayedValue, kind: kind, style: .tray)
         }
         if let first = selectedValues.first {
-            if title == "Rate Limit Resets", first.kind == .count {
-                return "\(MetricFormatter.number(first.number, kind: .count, style: .tray)) resets"
+            if let traySuffix, first.kind == .count {
+                return "\(MetricFormatter.number(first.number, kind: .count, style: .tray)) \(traySuffix)"
             }
             return MetricFormatter.string(for: first, style: .tray)
         }
@@ -330,14 +343,28 @@ struct WidgetData: Hashable {
     static let expiryWarningWindow: TimeInterval = 7 * 24 * 60 * 60
     static let expiryCriticalWindow: TimeInterval = 48 * 60 * 60
 
+    /// Severity band for a single expiry `timeRemaining` seconds out: red under 48h, amber under a
+    /// week, blue beyond. Shared by the row's status dot (soonest expiry) and the resets popover's
+    /// per-credit dots, so one credit can never read a different color in the two places.
+    static func expirySeverity(secondsRemaining: TimeInterval) -> MeterSeverity {
+        if secondsRemaining <= expiryCriticalWindow { return .critical }
+        if secondsRemaining <= expiryWarningWindow { return .warning }
+        return .normal
+    }
+
     /// Visual status for rows carrying reset-credit expiries. Recomputes on the popover's 30s tick because
     /// the row keeps ticking while it carries expiries.
     func expirySeverity(now: Date = Date()) -> MeterSeverity? {
         guard hasData, let soonest = expiriesAt.min() else { return nil }
-        let timeRemaining = soonest.timeIntervalSince(now)
-        if timeRemaining <= Self.expiryCriticalWindow { return .critical }
-        if timeRemaining <= Self.expiryWarningWindow { return .warning }
-        return .normal
+        return Self.expirySeverity(secondsRemaining: soonest.timeIntervalSince(now))
+    }
+
+    /// The available reset-credit count backing a `showsResetExpiries` row (its "N available" figure).
+    /// Lets the popover tell "no credits" (empty state) from "credits whose per-credit expiries we
+    /// couldn't fetch" — the usage-body fallback carries the count but no expiry list, so `expiriesAt`
+    /// is empty while the row still reads e.g. "3 available".
+    var resetCreditCount: Int {
+        Int((selectedValues.first?.number ?? 0).rounded(.down))
     }
 
     /// Hover tooltip for a row carrying expiry instants (the Codex reset-credit row, "2 available"):
@@ -410,11 +437,6 @@ struct WidgetData: Hashable {
         // genuinely means nothing was used. A balance row that reads 0 (Codex Rate Limit Resets, an
         // exhausted Extra Usage credit) is depleted, not idle, so it gets no note.
         return nil
-    }
-
-    /// Labels do not carry hover affordances; tests pin that behavior.
-    var unboundedLabelTooltip: String? {
-        nil
     }
 
     private var unboundedTooltipNote: String? {
@@ -561,19 +583,9 @@ extension WidgetData {
     /// Still gated on `now < resetsAt`: once the reset has passed the snapshot is stale, so we drop the
     /// "Not started" claim and let the row fall back to the normal "Resets soon"/countdown formatting.
     func isFreshSessionWindow(now: Date = Date()) -> Bool {
-        guard let id = widgetID, Self.sessionWindowWidgetIDs.contains(id),
-              hasData, limit != nil, let resetsAt, used <= 0 else { return false }
+        guard isSessionWindow, hasData, limit != nil, let resetsAt, used <= 0 else { return false }
         return now < resetsAt
     }
-
-    private static let sessionWindowWidgetIDs: Set<String> = [
-        "codex.session", "claude.session",
-        // Antigravity's two pool meters are rolling 5-hour windows too: an unused pool reports
-        // `used == 0` with a reset a full period out, so it gets the same "Not started" treatment.
-        // The weekly meters deliberately aren't listed — like Claude/Codex, only session windows
-        // read "Not started".
-        "antigravity.geminiPro", "antigravity.claude"
-    ]
 
     /// True when the bounded primary row's trailing text is a concrete reset countdown (so the row makes
     /// it the clickable toggle). False for limit/suffix context, fresh session windows, or no reset date.
@@ -609,5 +621,20 @@ extension WidgetData {
         let opposite = displayMode == .remaining ? used : max(0, limit - used)
         let word = (displayMode == .remaining ? WidgetDisplayMode.used : .remaining).label.lowercased()
         return "\((valuePrefix ?? "") + format(opposite)) \(word)"
+    }
+}
+
+extension WidgetData {
+    /// The neighbor-aware condensing rule, in one place: within a single run of rows (a run never spans
+    /// the expand caret — callers segment at that boundary and scan each segment separately), the offsets
+    /// of text-only rows that sit directly under another text-only row. A text-only row has no meter fill
+    /// (`!isBounded`); a run of them (Today / Yesterday / Last 30 Days) pulls up into one cluster. The
+    /// dashboard maps these offsets back to descriptor IDs; the share-card export maps them to flat indices.
+    static func condensedTextRowOffsets(in rows: [WidgetData]) -> Set<Int> {
+        var offsets = Set<Int>()
+        for index in rows.indices.dropFirst() where !rows[index - 1].isBounded && !rows[index].isBounded {
+            offsets.insert(index)
+        }
+        return offsets
     }
 }

@@ -36,64 +36,8 @@ final class WidgetNoDataTests: XCTestCase {
         XCTAssertNotEqual(store.data(for: present).valueText, WidgetData.noDataHeadline)
     }
 
-    func testMenuBarFollowsLayoutOrder() async {
-        // Both tiles have real data; the menu bar shows whichever is FIRST in the injected order,
-        // proving the value is order-driven (not registry/alphabetical).
-        let provider = Self.testProvider
-        let alpha = boundedPercent(provider, id: "test.alpha", metric: "Alpha", sampleUsed: 11)
-        let beta = boundedPercent(provider, id: "test.beta", metric: "Beta", sampleUsed: 22)
-        let store = makeOrderedStore(
-            provider: provider,
-            descriptors: [alpha, beta],
-            order: [beta, alpha],
-            lines: [
-                .progress(label: "Alpha", used: 40, limit: 100, format: .percent),
-                .progress(label: "Beta", used: 70, limit: 100, format: .percent)
-            ],
-            suite: "menubar-order"
-        )
-        store.meterStyle = .used
-        await store.refreshAll()
-
-        XCTAssertEqual(store.menuBarPrimaryText, "70%")
-    }
-
-    func testMenuBarSkipsNoDataAndUsesNextOrderedTile() async {
-        // Alpha is first in order but has no backing line; the menu bar skips it for the next ordered
-        // tile (Beta) that has real data, never showing Alpha's placeholder sample.
-        let provider = Self.testProvider
-        let alpha = boundedPercent(provider, id: "test.alpha", metric: "Alpha", sampleUsed: 11)
-        let beta = boundedPercent(provider, id: "test.beta", metric: "Beta", sampleUsed: 22)
-        let store = makeOrderedStore(
-            provider: provider,
-            descriptors: [alpha, beta],
-            order: [alpha, beta],
-            lines: [.progress(label: "Beta", used: 70, limit: 100, format: .percent)],
-            suite: "menubar-skip"
-        )
-        store.meterStyle = .used
-        await store.refreshAll()
-
-        XCTAssertEqual(store.menuBarPrimaryText, "70%")
-    }
-
-    func testMenuBarFallsBackWhenEveryOrderedTileIsNoData() async {
-        // The provider refreshed, but its snapshot lacks both ordered metrics, so every tile is
-        // no-data and the menu bar shows the no-data marker instead of a fabricated amount.
-        let provider = Self.testProvider
-        let alpha = boundedPercent(provider, id: "test.alpha", metric: "Alpha", sampleUsed: 11)
-        let beta = boundedPercent(provider, id: "test.beta", metric: "Beta", sampleUsed: 22)
-        let store = makeOrderedStore(
-            provider: provider,
-            descriptors: [alpha, beta],
-            order: [alpha, beta],
-            lines: [.progress(label: "Gamma", used: 10, limit: 100, format: .percent)],
-            suite: "menubar-fallback"
-        )
-        await store.refreshAll()
-
-        XCTAssertEqual(store.menuBarPrimaryText, WidgetData.noDataHeadline)
-    }
+    // Menu-bar ordering / no-data-skip / fallback are exercised on the real tray path
+    // (MenuBarContentBuilder + LayoutStore.pinnedGroups) in MenuBarContentTests and MenuBarPinTests.
 
     // MARK: - Helpers
 
@@ -122,36 +66,6 @@ final class WidgetNoDataTests: XCTestCase {
         )
         await store.refreshAll()
         return (store, present, missing)
-    }
-
-    private static let testProvider = Provider(id: "test", displayName: "Test", icon: .providerMark("cursor"))
-
-    /// Builds a store whose menu-bar order is the injected `order` list, mirroring how `AppContainer`
-    /// feeds `LayoutStore.visiblePlaced` into the store.
-    private func makeOrderedStore(
-        provider: Provider,
-        descriptors: [WidgetDescriptor],
-        order: [WidgetDescriptor],
-        lines: [MetricLine],
-        suite: String
-    ) -> WidgetDataStore {
-        let runtime = TestProviderRuntime(
-            provider: provider,
-            descriptors: descriptors,
-            snapshot: ProviderSnapshot(
-                providerID: provider.id,
-                displayName: provider.displayName,
-                lines: lines
-            )
-        )
-        let defaults = makeUserDefaults(suite)
-        return WidgetDataStore(
-            registry: WidgetRegistry(providers: [provider], descriptors: descriptors),
-            providers: [runtime],
-            cache: makeCache(defaults),
-            defaults: defaults,
-            orderedDescriptors: { order }
-        )
     }
 
     private func boundedPercent(

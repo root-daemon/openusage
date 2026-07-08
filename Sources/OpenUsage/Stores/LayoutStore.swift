@@ -1,63 +1,38 @@
 import SwiftUI
 import Observation
 
-/// The screen showing inside the menu-bar popover. Customize and Settings replace the dashboard
-/// in place (the popover has no window stack); Esc backs out to the dashboard first.
-enum PopoverScreen: Hashable, Sendable {
-    case dashboard
-    case customize
-    case settings
-
-    /// Left-to-right order for the popover's horizontal screen-switch slide: the dashboard is home on
-    /// the left, with Customize and Settings to its right. The slide reads its direction from these
-    /// ranks — a higher-ranked target enters from the trailing edge, a lower one from the leading edge.
-    var slideRank: Int {
-        switch self {
-        case .dashboard: 0
-        case .customize: 1
-        case .settings: 2
-        }
-    }
-}
-
 /// Mutable layout: which widgets are enabled, provider order, and each provider's metric order.
 /// `placed` is the enabled set (with stable widget ids); `metricOrderByProvider` is the user's custom order.
 @MainActor
 @Observable
 final class LayoutStore {
     var placed: [PlacedWidget]
-    /// Which in-popover screen is showing. Lives here (not per-view state) so the footer buttons,
-    /// the Esc handler, and the popover-closed reset all drive the same mode.
-    var screen = PopoverScreen.dashboard {
-        didSet {
-            guard screen != oldValue else { return }
-            // Recorded synchronously with the change — not via SwiftUI's `onChange`, which fires a
-            // frame later and would let the popover paint the destination before the slide begins.
-            // DashboardView reads these on its very next render to slide in from the screen being left.
-            screenSlideFrom = oldValue
-            screenSlideID += 1
-            // Leaving Customize drops the L2 detail selection so reopening Customize shows the list,
-            // never a stranded detail screen. The popover-closed reset sets `screen = .dashboard`, so
-            // this also covers close/reopen.
-            if screen != .customize { customizeProviderID = nil }
-        }
+
+    /// In-popover navigation (screen, Customize master/detail, screen-switch slide). Its own store so
+    /// screen routing isn't tangled with layout state; the `screen`/`isEditing`/`customizeProviderID`/
+    /// `screenSlide*` surface below forwards to it, so existing call sites are unchanged. Private so the
+    /// forwarding surface stays the ONLY spelling — two live paths to the same state invites drift.
+    private let navigation = PopoverNavigationStore()
+
+    /// Which in-popover screen is showing. Drives the footer buttons, the Esc handler, and the
+    /// popover-closed reset alike.
+    var screen: PopoverScreen {
+        get { navigation.screen }
+        set { navigation.screen = newValue }
     }
-    /// Supports DashboardView's horizontal screen-switch slide: the screen being left, plus a counter
-    /// that ticks on every switch so the view can detect and animate each transition. UI-only; not persisted.
-    private(set) var screenSlideFrom = PopoverScreen.dashboard
-    private(set) var screenSlideID = 0
-    /// Whether the Customize screen (per-provider metric toggles + reorder) is showing — a bridge
-    /// over `screen` for the many call sites that think in terms of edit mode.
+    /// The screen being left plus a per-switch counter, for DashboardView's horizontal slide.
+    var screenSlideFrom: PopoverScreen { navigation.screenSlideFrom }
+    var screenSlideID: Int { navigation.screenSlideID }
+    /// Whether the Customize screen is showing — a bridge over `screen` for edit-mode call sites.
     var isEditing: Bool {
-        get { screen == .customize }
-        set { screen = newValue ? .customize : .dashboard }
+        get { navigation.isEditing }
+        set { navigation.isEditing = newValue }
     }
-    /// The provider whose Customize detail (L2) is showing. nil shows the provider list (L1); a set id
-    /// shows that provider's metric sections and API key. UI-only (not persisted): transient navigation
-    /// like `draggingID`, cleared when leaving Customize (see `screen`'s didSet) and on popover close
-    /// (DashboardView resets `screen` to `.dashboard`). Kept separate from `expandedProviderIDs` —
-    /// that's the dashboard caret, unrelated to this master/detail route.
-    var customizeProviderID: String?
+    /// The provider whose Customize detail (L2) is showing (nil shows the L1 list).
+    var customizeProviderID: String? {
+        get { navigation.customizeProviderID }
+        set { navigation.customizeProviderID = newValue }
+    }
     /// Placed widget being drag-reordered (transient). `PlacedWidget.id`, never persisted.
     var draggingID: UUID?
     /// Persisted provider display order (provider IDs). Drives both the dashboard groups and the
@@ -83,34 +58,33 @@ final class LayoutStore {
     /// stay open across popover closes and app restarts.
     private(set) var expandedProviderIDs: Set<String>
 
-    /// Transient explanation for a denied pin attempt (the WhatsApp-style "you can only pin N chats"
-    /// feedback). Set by `notePinDenied`, cleared automatically a few seconds later; the popover footer
-    /// renders it in place of the pin counter. Never persisted.
-    private(set) var pinLimitNotice: String?
-    /// Bumped on every denied pin click so the footer notice plays its deny shake each time — including
-    /// repeated clicks while the notice is already showing (where the text itself doesn't change).
-    private(set) var pinNoticeShakeTrigger = 0
-    private var pinNoticeClearTask: Task<Void, Never>?
+    /// The three transient popover pills, each an auto-clearing `TransientNotice` (was three copy-pasted
+    /// value+trigger+clearTask machines). The public `pinLimitNotice`/`shareConfirmation`/
+    /// `customizationNotice` surface below forwards to these, so call sites are unchanged.
+    private let pinNotice = TransientNotice<String?>(clearedValue: nil, timeout: .seconds(3))
+    private let shareNotice = TransientNotice<Bool>(clearedValue: false, timeout: .seconds(2.5))
+    private let customizeNotice = TransientNotice<CustomizationNoticeContent?>(clearedValue: nil, timeout: .seconds(2.5))
 
-    /// Transient confirmation that a provider's screenshot was copied to the clipboard — drives the
-    /// floating "Copied to clipboard" pill above the footer. Set by `presentShareConfirmation`,
-    /// cleared automatically a couple of seconds later. Never persisted.
-    private(set) var shareConfirmation = false
-    /// Bumped on every successful share so the pill replays its pop-in even when the same provider is
-    /// copied twice in a row (the pill's text doesn't change, so without this it wouldn't re-animate).
-    private(set) var shareConfirmationTrigger = 0
-    private var shareConfirmationClearTask: Task<Void, Never>?
+    /// Transient explanation for a denied pin attempt; the popover footer renders it in place of the pin
+    /// counter. Set by `notePinDenied`, auto-cleared a few seconds later.
+    var pinLimitNotice: String? { pinNotice.value }
+    /// Bumped on every denied pin click so the footer notice plays its deny shake each time.
+    var pinNoticeShakeTrigger: Int { pinNotice.trigger }
 
-    /// Transient in-Customize notice that drives the floating pill above the Customize content (e.g.
-    /// "Starred for menu bar", or the orange "Up to 2 stars per provider" denial). Set by
-    /// `presentCustomizationNotice`, cleared automatically after a couple of seconds. Never persisted;
-    /// cleared on popover close via `clearCustomizationNotice`.
-    private(set) var customizationNotice: String?
-    /// The notice's tone: `.positive` (green checkmark, success) or `.notice` (orange, the cap denial).
-    private(set) var customizationNoticeTone: CustomizationNoticeTone = .positive
+    /// Transient "Copied to clipboard" confirmation for the floating pill above the footer.
+    var shareConfirmation: Bool { shareNotice.value }
+    /// Bumped on every successful share so the pill replays its pop-in even on a repeat copy.
+    var shareConfirmationTrigger: Int { shareNotice.trigger }
+
+    /// Transient in-Customize notice (e.g. "Starred for menu bar", or the orange cap denial).
+    var customizationNotice: String? { customizeNotice.value?.message }
+    /// The notice's tone: `.positive` (green checkmark) or `.notice` (orange denial). Falls back to
+    /// `.positive` once cleared (tone is only read while `customizationNotice` is non-nil, so the
+    /// snap-back is unobservable — message and tone now clear atomically, which the old split state
+    /// machine couldn't guarantee).
+    var customizationNoticeTone: CustomizationNoticeTone { customizeNotice.value?.tone ?? .positive }
     /// Bumped on every present so the pill replays its pop-in even when the same notice repeats.
-    private(set) var customizationNoticeTrigger = 0
-    private var customizationNoticeClearTask: Task<Void, Never>?
+    var customizationNoticeTrigger: Int { customizeNotice.trigger }
 
     /// Bounded, app-wide undo stack for layout customization (remove/add a metric, reorder metrics or
     /// providers, pin/unpin, move across the expand caret). UI-only state (not persisted): undo is a
@@ -350,6 +324,23 @@ final class LayoutStore {
         placed.contains { $0.descriptorID == descriptorID }
     }
 
+    /// Whether any enabled provider ships the local spend tiles — the capability gate for the
+    /// Total Spend card. Keyed off the registry's descriptors, not off refreshed data, so the card
+    /// can show its "No spend data" state on a fresh morning instead of vanishing.
+    var hasSpendCapableProvider: Bool {
+        !spendCapableProviders.isEmpty
+    }
+
+    /// Enabled providers that ship the local spend tiles (`WidgetDescriptor.spendTiles`), in the
+    /// user's provider order — the exact set the Total Spend card aggregates. Deliberately *not*
+    /// `displayGroups`: a provider whose every metric is hidden in Customize still spends money and
+    /// must still count, and look-alike dollar rows from other providers (OpenRouter's API-spend
+    /// "Today") must not.
+    var spendCapableProviders: [Provider] {
+        let capableIDs = Set(registry.descriptors.filter(\.isSpendTile).map(\.providerID))
+        return orderedProviders().filter { capableIDs.contains($0.id) && isProviderEnabled($0.id) }
+    }
+
     // MARK: - Provider grouping
 
     /// Known providers in the user's saved order, with any not-yet-seen provider appended in registry order
@@ -451,10 +442,6 @@ final class LayoutStore {
         return ordered.filter { !expandedMetricIDs.contains($0) }
             + [dividerID]
             + ordered.filter { expandedMetricIDs.contains($0) }
-    }
-
-    func isMetricExpanded(_ descriptorID: String) -> Bool {
-        expandedMetricIDs.contains(descriptorID)
     }
 
     func isProviderExpanded(_ providerID: String) -> Bool {
@@ -631,10 +618,11 @@ final class LayoutStore {
         return true
     }
 
-    /// Move a metric across the "Shown on expand" divider without a drag — the per-row control in
-    /// Customize. Moving into the expanded section parks it as the first expanded metric; moving back
-    /// parks it as the last always-shown metric, so the stored order stays grouped the way it renders.
-    /// Returns whether anything changed.
+    /// Move a metric across the "Shown on expand" divider without a drag. Moving into the expanded
+    /// section parks it as the first expanded metric; moving back parks it as the last always-shown
+    /// metric, so the stored order stays grouped the way it renders. Returns whether anything changed.
+    /// (Customize now moves metrics via `applyMetricDividerOrder`/`reorderMetric`; this direct toggle is
+    /// retained as the concise expand-state mutator the tests drive and for a future per-row control.)
     @discardableResult
     func setMetricExpanded(_ descriptorID: String, _ expanded: Bool) -> Bool {
         recordingUndoStep { setMetricExpandedImpl(descriptorID, expanded) }
@@ -821,60 +809,34 @@ final class LayoutStore {
     /// with a deny shake on every attempt).
     func notePinDenied(_ descriptorID: String) {
         guard let reason = pinDenialReason(descriptorID) else { return }
-        pinLimitNotice = reason
-        pinNoticeShakeTrigger += 1
-        pinNoticeClearTask?.cancel()
-        pinNoticeClearTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled else { return }
-            self?.pinLimitNotice = nil
-        }
+        pinNotice.present(reason)
     }
 
     /// Record a successful "Share Screenshot" copy so the floating "Copied to clipboard" pill can
     /// confirm it. Shown for a couple of seconds then cleared — the success-side counterpart to
     /// `notePinDenied`'s transient denial notice, with the same lifecycle.
     func presentShareConfirmation() {
-        shareConfirmation = true
-        shareConfirmationTrigger += 1
-        shareConfirmationClearTask?.cancel()
-        shareConfirmationClearTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2.5))
-            guard !Task.isCancelled else { return }
-            self?.shareConfirmation = false
-        }
+        shareNotice.present(true)
     }
 
     /// Clear any showing "Copied to clipboard" confirmation and cancel its auto-clear task. Called when
     /// the popover closes so a pill mid-countdown can't reappear stale on the next open — the timer is
     /// otherwise the only clearer, and the layout store outlives the popover.
     func clearShareConfirmation() {
-        shareConfirmation = false
-        shareConfirmationClearTask?.cancel()
-        shareConfirmationClearTask = nil
+        shareNotice.clear()
     }
 
     /// Show a transient in-Customize pill (the floating confirmation above the Customize content).
     /// `tone` picks the green success style or the orange denial style. Auto-clears after a couple of
     /// seconds; also cleared on popover close via `clearCustomizationNotice`.
     func presentCustomizationNotice(_ message: String, tone: CustomizationNoticeTone = .positive) {
-        customizationNotice = message
-        customizationNoticeTone = tone
-        customizationNoticeTrigger += 1
-        customizationNoticeClearTask?.cancel()
-        customizationNoticeClearTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2.5))
-            guard !Task.isCancelled else { return }
-            self?.customizationNotice = nil
-        }
+        customizeNotice.present(CustomizationNoticeContent(message: message, tone: tone))
     }
 
     /// Clear any showing Customize pill and cancel its auto-clear task. Called when the popover closes
     /// so a pill mid-countdown can't reappear stale on the next open.
     func clearCustomizationNotice() {
-        customizationNotice = nil
-        customizationNoticeClearTask?.cancel()
-        customizationNoticeClearTask = nil
+        customizeNotice.clear()
     }
 
     /// Pin or unpin a metric for the menu bar. Pinning is a no-op when it would exceed a cap, so callers
@@ -910,11 +872,6 @@ final class LayoutStore {
                 expandedMetrics: metrics.filter { expandedMetricIDs.contains($0.id) }
             )
         }
-    }
-
-    /// Flattened pinned descriptor ids in display order.
-    var pinnedDescriptorIDsInOrder: [String] {
-        pinnedGroups.flatMap { $0.metrics.map(\.id) }
     }
 
     private func persistPins() {
@@ -1250,4 +1207,10 @@ struct ProviderRow: Identifiable {
 enum CustomizationNoticeTone {
     case positive
     case notice
+}
+
+/// The message + tone carried by the Customize pill's `TransientNotice`, so its two fields clear together.
+struct CustomizationNoticeContent {
+    var message: String
+    var tone: CustomizationNoticeTone
 }

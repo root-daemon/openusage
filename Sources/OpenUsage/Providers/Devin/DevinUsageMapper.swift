@@ -22,7 +22,7 @@ enum DevinUsageMapper {
         let planStatus = userStatus["planStatus"] as? [String: Any] ?? [:]
         let planInfo = planStatus["planInfo"] as? [String: Any] ?? [:]
         let plan = readTrimmedString(planInfo["planName"]) ?? "Unknown"
-        let hideDailyQuota = readBool(planInfo["hideDailyQuota"]) == true
+        let hideDailyQuota = ProviderParse.bool(planInfo["hideDailyQuota"]) == true
 
         let dailyRemaining = ProviderParse.number(planStatus["dailyQuotaRemainingPercent"])
         let weeklyRemaining = ProviderParse.number(planStatus["weeklyQuotaRemainingPercent"])
@@ -102,21 +102,6 @@ enum DevinUsageMapper {
         guard let string = value as? String else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func readBool(_ value: Any?) -> Bool? {
-        if let bool = value as? Bool { return bool }
-        if let string = value as? String {
-            switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "true":
-                return true
-            case "false":
-                return false
-            default:
-                return nil
-            }
-        }
-        return nil
     }
 }
 

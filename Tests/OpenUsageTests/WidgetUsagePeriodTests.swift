@@ -87,7 +87,6 @@ final class WidgetUsagePeriodTests: XCTestCase {
         row.valueTooltipNote = WidgetData.cursorUsageHistoryNote
 
         XCTAssertEqual(row.unboundedDetail, "$0.00 · 0 tokens")
-        XCTAssertNil(row.unboundedLabelTooltip)
         XCTAssertEqual(row.unboundedValueTooltip, "No usage in this period\n\(WidgetData.cursorUsageHistoryNote)")
     }
 }

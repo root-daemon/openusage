@@ -62,7 +62,7 @@ final class ZAIProvider: ProviderRuntime {
             if ZAIUsageMapper.isNoCodingPlan(body) {
                 return ProviderSnapshot.error(provider: provider, error: ZAIUsageError.noCodingPlan)
             }
-            let mapped = ZAIUsageMapper.map(quotaBody: body, subscriptionBody: optionalBody(subscription))
+            let mapped = ZAIUsageMapper.map(quotaBody: body, subscriptionBody: subscription)
             return ProviderSnapshot.make(provider: provider, plan: mapped.plan, lines: mapped.lines, refreshedAt: now())
         case .authFailure:
             return ProviderSnapshot.error(provider: provider, error: ZAIAuthError.invalidKey)
@@ -87,19 +87,16 @@ final class ZAIProvider: ProviderRuntime {
     }
 
     /// Run the optional subscription call — never throws into the snapshot: a transport error, a
-    /// non-2xx, or an auth failure all just mean "no plan name this refresh".
-    private func loadOptional(_ call: () async throws -> HTTPResponse) async -> HTTPResponse? {
+    /// non-2xx, or an auth failure all just mean "no plan name this refresh". Returns just the body
+    /// (the only thing the mapper consumes); the outcome is otherwise discarded.
+    private func loadOptional(_ call: () async throws -> HTTPResponse) async -> Data? {
         do {
             let response = try await call()
             guard (200..<300).contains(response.statusCode) else { return nil }
-            return response
+            return response.body
         } catch {
             return nil
         }
-    }
-
-    private func optionalBody(_ response: HTTPResponse?) -> Data? {
-        response?.body
     }
 }
 

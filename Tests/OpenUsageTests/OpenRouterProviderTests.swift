@@ -12,7 +12,6 @@ final class OpenRouterAuthStoreTests: XCTestCase {
         let auth = store.loadAPIKey()
 
         XCTAssertEqual(auth?.apiKey, "sk-or-file")
-        XCTAssertEqual(auth?.source, .configFile)
     }
 
     func testFallsBackToEnvironmentWhenNoConfigFile() {
@@ -24,7 +23,6 @@ final class OpenRouterAuthStoreTests: XCTestCase {
         let auth = store.loadAPIKey()
 
         XCTAssertEqual(auth?.apiKey, "sk-or-env")
-        XCTAssertEqual(auth?.source, .environment)
     }
 
     func testReadsKeyFromJSONConfigFile() {
@@ -36,7 +34,6 @@ final class OpenRouterAuthStoreTests: XCTestCase {
         let auth = store.loadAPIKey()
 
         XCTAssertEqual(auth?.apiKey, "sk-or-json")
-        XCTAssertEqual(auth?.source, .configFile)
     }
 
     func testReadsPlainTextKeyFile() {
@@ -73,7 +70,6 @@ final class OpenRouterAuthStoreTests: XCTestCase {
         // Sorted-keys JSON, trimmed key — the exact bytes the auth store round-trips.
         XCTAssertEqual(files.files[OpenRouterAuthStore.configPaths[0]], #"{"apiKey":"sk-or-new"}"#)
         XCTAssertEqual(store.loadAPIKey()?.apiKey, "sk-or-new")
-        XCTAssertEqual(store.loadAPIKey()?.source, .configFile)
     }
 
     func testSaveAPIKeyRejectsEmptyKey() {
@@ -387,25 +383,3 @@ private func jsonResponse(_ object: [String: Any]) -> HTTPResponse {
     return HTTPResponse(statusCode: 200, headers: [:], body: body)
 }
 
-final class APIKeyManagementTests: XCTestCase {
-    func testMaskedKeyPreviewHidesAllButLastFour() {
-        XCTAssertEqual(maskedKeyPreview("sk-or-v1-abcdefgh"), "•••••••• efgh")
-    }
-
-    func testMaskedKeyPreviewTrimsWhitespace() {
-        XCTAssertEqual(maskedKeyPreview("  sk-or-v1-abcdefgh\n"), "•••••••• efgh")
-    }
-
-    func testMaskedKeyPreviewReturnsNilForShortKey() {
-        // A short secret would reveal too much — fall back to a fully-masked placeholder instead.
-        XCTAssertNil(maskedKeyPreview("short"))
-        XCTAssertNil(maskedKeyPreview("sk-or-12"))
-    }
-
-    func testAPIKeyStatusIsPresent() {
-        XCTAssertFalse(APIKeyStatus.notSet.isPresent)
-        XCTAssertTrue(APIKeyStatus.fromEnvironment.isPresent)
-        XCTAssertTrue(APIKeyStatus.saved.isPresent)
-        XCTAssertTrue(APIKeyStatus.overrideActive.isPresent)
-    }
-}

@@ -149,10 +149,8 @@ final class CursorProvider: ProviderRuntime {
 
     /// Strictly additive: fetch the usage CSV and append the three per-day spend tiles. Any failure
     /// (no session, non-2xx, or undecodable body) appends nothing, so the live Cursor mapping is never
-    /// affected and the spend tiles fall back to "No data".
-    ///
-    /// Currently dormant: only called when `spendTrackingEnabled` is true. Kept intact so re-enabling
-    /// Cursor spend tracking is a one-line flag flip (see `spendTrackingEnabled`).
+    /// affected and the spend tiles fall back to "No data". Gated on `spendTrackingEnabled` (see there
+    /// for the on/off history).
     private func appendSpendLines(to lines: inout [MetricLine], accessToken: String) async {
         let calendar = Calendar.current
         let end = now()
@@ -266,13 +264,7 @@ final class CursorProvider: ProviderRuntime {
     }
 
     private func shouldTryGenericRequestFallback(usage: [String: Any]) -> Bool {
-        guard usage["enabled"] as? Bool != false,
-              let planUsage = usage["planUsage"] as? [String: Any]
-        else {
-            return false
-        }
-        return ProviderParse.number(planUsage["limit"]) == nil
-            && ProviderParse.number(planUsage["totalPercentUsed"]) == nil
+        CursorPlanUsageFacts(usage: usage).shouldTryGenericRequestFallback
     }
 
     private func snapshot(_ mapped: CursorMappedUsage) -> ProviderSnapshot {

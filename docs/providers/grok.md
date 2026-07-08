@@ -6,10 +6,12 @@ Tracks Grok Build credit usage using the login from the Grok CLI.
 
 | Metric | Meaning |
 |---|---|
-| Monthly | Credits used vs. your monthly limit |
+| Weekly | The shared weekly pool's usage percent (the limit Grok's unified billing enforces), with the weekly reset countdown |
 | Extra Usage | Pay-as-you-go cap as a status (e.g. `2500 cap` or `Disabled`) |
 | Today / Yesterday / Last 30 Days | Local cost and tokens estimated from the Grok CLI log |
 | Plan | Your subscription tier (optional widget) |
+
+The weekly shared pool is the limit Grok enforces for unified-billing accounts (the old monthly credits meter is legacy and no longer shown). Accounts that haven't been migrated to unified billing have no weekly pool, so the Weekly tile reads "No data" there.
 
 ## Where credentials come from
 
@@ -22,8 +24,9 @@ Today / Yesterday / Last 30 Days are computed **locally** from the Grok CLI's lo
 ## Troubleshooting
 
 - **"Session expired" / auth errors** — run `grok login` again, then refresh.
+- **Weekly shows "No data"** — your account still reports a monthly (non-weekly) period, meaning it hasn't been migrated to Grok's unified weekly billing yet.
 - **Spend tiles show "No data"** — they need the Grok CLI's log at `~/.grok/logs/unified.jsonl`; older CLI versions logged no token counts. Run a Grok CLI session to populate it, then refresh.
 
 ## Under the hood
 
-`GET https://cli-chat-proxy.grok.com/v1/billing` for usage and `…/v1/settings` for the plan name; token refresh via `auth.x.ai`. A 401/403 triggers one token refresh and retry.
+`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` for the weekly pool and pay-as-you-go cap — the exact call the Grok CLI itself makes — and `…/v1/settings` for the plan name; token refresh via `auth.x.ai`. A 401/403 triggers one token refresh and retry.

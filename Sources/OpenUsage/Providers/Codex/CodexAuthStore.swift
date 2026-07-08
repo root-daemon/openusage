@@ -113,19 +113,8 @@ struct CodexAuthStore: Sendable {
         self.now = now
     }
 
-    func loadAuthCandidates() -> ([CodexAuthState], [String]) {
-        var candidates: [CodexAuthState] = []
-        var missing: [String] = []
-
-        for path in authPaths() {
-            if let state = loadAuth(at: path) {
-                candidates.append(state)
-            } else if !files.exists(path) {
-                missing.append(path)
-            }
-        }
-
-        return (candidates, missing)
+    func loadAuthCandidates() -> [CodexAuthState] {
+        authPaths().compactMap { loadAuth(at: $0) }
     }
 
     /// Reads the credential from a single on-disk auth file — the targeted counterpart to

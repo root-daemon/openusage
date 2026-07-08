@@ -90,7 +90,7 @@ struct AntigravityAuthStore: Sendable {
     /// `go-keyring-base64:` wrapper around JSON `{ token: { access_token, refresh_token, expiry }, … }`,
     /// with fallbacks for a bare JSON string, a `Bearer …` value, or a raw token.
     static func extractToken(fromKeychainRaw raw: String) -> AntigravityKeychainToken? {
-        guard let text = unwrapGoKeyring(raw) else { return nil }
+        guard let text = ProviderParse.unwrapGoKeyring(raw) else { return nil }
 
         if let data = text.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) {
@@ -107,21 +107,6 @@ struct AntigravityAuthStore: Sendable {
             return token.map { AntigravityKeychainToken(accessToken: $0, refreshToken: nil, expiry: nil) }
         }
         return AntigravityKeychainToken(accessToken: text, refreshToken: nil, expiry: nil)
-    }
-
-    static func unwrapGoKeyring(_ raw: String) -> String? {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "go-keyring-base64:"
-        if text.hasPrefix(prefix) {
-            let encoded = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let data = Data(base64Encoded: encoded),
-                  let decoded = String(data: data, encoding: .utf8)
-            else {
-                return nil
-            }
-            text = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return text.nilIfEmpty
     }
 
     static func tokenFromObject(_ object: [String: Any]) -> AntigravityKeychainToken? {

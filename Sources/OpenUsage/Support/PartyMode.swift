@@ -39,6 +39,34 @@ extension EnvironmentValues {
     }
 }
 
+/// Renders time-driven `content(t)` under a live `TimelineView(.animation)` while the popover is
+/// on-screen, and at a single static frame (the current instant, matching the live clock's first frame)
+/// when it's hidden — so no display link ticks behind a closed popover, yet the look doesn't snap off on
+/// close. This is the shared home of the STRUCTURAL mount gate every easter-egg loop uses; it is
+/// deliberately NOT the reverted `TimelineView(.animation(paused:))` overload (see `\.popoverIsVisible`).
+/// Both branches carry `.transition(.identity)` so toggling the egg crossfades via the surrounding
+/// `.animation`, never a hard cut. `t` is `timeIntervalSinceReferenceDate`.
+struct VisibilityGatedTimeline<Content: View>: View {
+    @Environment(\.popoverIsVisible) private var shown
+    private let content: (TimeInterval) -> Content
+
+    init(@ViewBuilder content: @escaping (TimeInterval) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        if shown {
+            TimelineView(.animation) { timeline in
+                content(timeline.date.timeIntervalSinceReferenceDate)
+            }
+            .transition(.identity)
+        } else {
+            content(Date().timeIntervalSinceReferenceDate)
+                .transition(.identity)
+        }
+    }
+}
+
 enum PartyMode {
     /// Vivid gradient fill for meter bars in party mode. The bar still shows its fraction by width, so
     /// it stays readable — it just trades the solid severity color for party colors.
@@ -71,22 +99,10 @@ extension View {
 private struct PartyPulseModifier: ViewModifier {
     @Environment(\.popoverIsVisible) private var shown
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        // Mount the pulse clock only while the popover is on-screen; a closed popover with the egg still
-        // active drops to a static frame (no `TimelineView`, no display link, no CPU). A fresh mount on
-        // reopen / in-place activation always attaches its display link, so the pulse starts immediately —
-        // unlike the reverted `.animation(paused:)` overload (see `\.popoverIsVisible`).
-        if shown {
-            TimelineView(.animation) { timeline in
-                pulse(content, at: timeline.date.timeIntervalSinceReferenceDate)
-            }
-            .transition(.identity)
-        } else {
-            // Frozen at the current instant so it matches the live clock's first frame (no scale pop).
-            pulse(content, at: Date().timeIntervalSinceReferenceDate)
-                .transition(.identity)
-        }
+        // Clock mounts only while the popover is on-screen (see `VisibilityGatedTimeline`); the pulse
+        // starts immediately on reopen / in-place activation and costs nothing when the popover is closed.
+        VisibilityGatedTimeline { t in pulse(content, at: t) }
     }
 
     private func pulse(_ content: Content, at t: TimeInterval) -> some View {

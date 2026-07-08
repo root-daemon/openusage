@@ -40,9 +40,9 @@ final class AntigravityLayoutTests: XCTestCase {
 
         XCTAssertTrue(store.isMetricEnabled("antigravity.geminiWeekly"))
         XCTAssertTrue(store.isMetricEnabled("antigravity.claudeWeekly"))
-        XCTAssertTrue(store.isMetricExpanded("antigravity.claudeWeekly"))
-        XCTAssertFalse(store.isMetricExpanded("antigravity.geminiWeekly"))
-        XCTAssertFalse(store.isMetricExpanded("antigravity.claude"),
+        XCTAssertTrue(store.expandedMetricIDs.contains("antigravity.claudeWeekly"))
+        XCTAssertFalse(store.expandedMetricIDs.contains("antigravity.geminiWeekly"))
+        XCTAssertFalse(store.expandedMetricIDs.contains("antigravity.claude"),
                        "a metric the user already lived with is never silently tucked away")
     }
 

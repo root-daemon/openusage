@@ -213,16 +213,14 @@ struct WidgetGroupedListView: View {
         condensedTextRowIDs(alwaysRows).union(condensedTextRowIDs(expandedRows))
     }
 
-    /// Neighbor-aware rule: IDs of text-only rows sitting directly under another text-only row.
-    /// Rows can't see their neighbors, so the list computes the pairs; Compact density pulls these
-    /// rows up so a run of one-liners reads as one cluster.
+    /// Neighbor-aware rule (shared with the share-card export via `WidgetData.condensedTextRowOffsets`):
+    /// IDs of text-only rows sitting directly under another text-only row. Rows can't see their
+    /// neighbors, so the list computes the pairs; Compact density pulls these rows up so a run of
+    /// one-liners reads as one cluster. Called per segment (always-shown / expanded), so the expand
+    /// caret is never crossed.
     private func condensedTextRowIDs(_ rows: [ResolvedRow]) -> Set<String> {
-        var ids = Set<String>()
-        for (previous, current) in zip(rows, rows.dropFirst())
-        where !previous.data.isBounded && !current.data.isBounded {
-            ids.insert(current.descriptor.id)
-        }
-        return ids
+        let offsets = WidgetData.condensedTextRowOffsets(in: rows.map(\.data))
+        return Set(offsets.map { rows[$0].descriptor.id })
     }
 
     private func row(_ descriptor: WidgetDescriptor, data: WidgetData, in providerID: String,

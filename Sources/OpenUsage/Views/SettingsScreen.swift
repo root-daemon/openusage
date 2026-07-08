@@ -21,6 +21,7 @@ struct SettingsScreen: View {
     /// friendly line under the row.
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var launchAtLoginError: String?
+    @AppStorage(TotalSpendSetting.key) private var showTotalSpend = true
     @AppStorage(AppearanceSetting.key) private var appearance = AppearanceSetting.system
     @AppStorage(TimeFormatSetting.key) private var timeFormat = TimeFormatSetting.auto
     @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
@@ -51,6 +52,12 @@ struct SettingsScreen: View {
         // Same section rhythm as the dashboard and Customize (all read the density setting).
         return VStack(alignment: .leading, spacing: density.sectionSpacing) {
             section("General") {
+                // The dashboard's cross-provider Total Spend card; the card still requires two or
+                // more providers with spend data, so this toggle can't conjure it up alone.
+                row("Show Total Spend") {
+                    Toggle("", isOn: $showTotalSpend)
+                        .settingsSwitchStyle()
+                }
                 row("Launch at Login") {
                     Toggle("", isOn: $launchAtLogin)
                         .settingsSwitchStyle()
@@ -70,13 +77,7 @@ struct SettingsScreen: View {
                         }
                 }
                 if let launchAtLoginError {
-                    // Same orange inline-notice idiom as the footer's pin-denied message.
-                    Text(launchAtLoginError)
-                        .font(.caption)
-                        .foregroundStyle(Theme.notice)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    inlineNotice(launchAtLoginError)
                 }
                 // Click-to-record field; its ⓧ clears the combo and disables the shortcut.
                 row("Global Shortcut") {
@@ -115,9 +116,9 @@ struct SettingsScreen: View {
                 // Egg first: while Party runs it overrides the toggle regardless of the system flags, so
                 // its notice takes precedence over the accessibility one.
                 if transparency.secretCodeActive {
-                    pausedNotice("Party mode is on, so this stays paused.")
+                    inlineNotice("Party mode is on, so this stays paused.")
                 } else if transparency.isPaused {
-                    pausedNotice("macOS Reduce Transparency or Increase Contrast is on, so this stays paused.")
+                    inlineNotice("macOS Reduce Transparency or Increase Contrast is on, so this stays paused.")
                 }
                 // Both rows surface only after the secret code has been entered. Party Mode is the egg's
                 // own switch: turning it off (like re-typing the code) exits the egg and hides both rows,
@@ -136,7 +137,7 @@ struct SettingsScreen: View {
                     // The egg yields to the accessibility flags too: when one is on the panel stays
                     // opaque, so explain why the party looks normal rather than leaving it a mystery.
                     if transparency.partyPaused {
-                        pausedNotice("macOS Reduce Transparency or Increase Contrast is on, so the party stays paused.")
+                        inlineNotice("macOS Reduce Transparency or Increase Contrast is on, so the party stays paused.")
                     }
                 }
             }
@@ -402,9 +403,9 @@ struct SettingsScreen: View {
     }
 
     /// True when at least one trigger is on — the gate for the permission warning + action row.
+    /// Delegates to the store's `anyEnabled` so the disjunction lives in one place.
     private var anyToggleOn: Bool {
-        let n = container.notificationSettings
-        return n.underTenPercent || n.healthyToClose || n.closeToRunningOut
+        container.notificationSettings.anyEnabled
     }
 
     /// Read the live macOS authorization status into `notificationsAuth`, but only when at least one
@@ -452,13 +453,7 @@ struct SettingsScreen: View {
                 logActionError = nil
             }
             if let logActionError {
-                // Same orange inline-notice idiom as the General section's error line.
-                Text(logActionError)
-                    .font(.caption)
-                    .foregroundStyle(Theme.notice)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                inlineNotice(logActionError)
             }
         }
     }
@@ -508,10 +503,10 @@ struct SettingsScreen: View {
         .padding(.vertical, density.controlRowPadding)
     }
 
-    /// An inline "this setting is paused" caption under a row — the same orange notice idiom as the
-    /// General section's error line. Used for the Increase Transparency row (paused by a system
-    /// accessibility setting, or by Party mode taking over the look).
-    private func pausedNotice(_ text: String) -> some View {
+    /// An inline orange caption under a row — the single definition of the notice idiom shared by the
+    /// General/Advanced error lines and the "this setting is paused" captions (Increase Transparency
+    /// paused by a system accessibility setting, or by Party mode taking over the look).
+    private func inlineNotice(_ text: String) -> some View {
         Text(text)
             .font(.caption)
             .foregroundStyle(Theme.notice)

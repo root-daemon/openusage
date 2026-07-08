@@ -44,13 +44,8 @@ actor ClaudeLogUsageScanner {
         var model: String?
     }
 
-    private struct CachedFile {
-        var size: Int
-        var mtime: Date
-        var entries: [Entry]
-    }
-
-    private var fileCache: [String: CachedFile] = [:]
+    /// Off-main-actor incremental parse cache (keyed path + size + mtime), owned by the shared scanner.
+    private let scanner = IncrementalJSONLScanner<Entry>()
 
     /// Scan the last `daysBack` days of Claude logs. Returns `nil` when no Claude data directory or
     /// no log files exist (the spend tiles then render "No data"); returns an empty series when logs
@@ -62,54 +57,10 @@ actor ClaudeLogUsageScanner {
         let files = Self.usageFiles(under: roots)
         guard !files.isEmpty else { return nil }
 
-        let since = Self.sinceDate(daysBack: daysBack, now: now)
-        var nextCache: [String: CachedFile] = [:]
-        var toParse: [DiscoveredFile] = []
-        for file in files {
-            // A file whose last write predates the window can't contain in-window entries; skip the
-            // parse (and drop any cache) so a years-deep `projects/` tree stays cheap to rescan.
-            guard file.mtime >= since else { continue }
-            if let cached = fileCache[file.path], cached.size == file.size, cached.mtime == file.mtime {
-                nextCache[file.path] = cached
-            } else {
-                toParse.append(file)
-            }
-        }
-        for (file, parsed) in await Self.parseFiles(toParse) {
-            // An unreadable file is skipped, not cached, so a transient read failure doesn't stick.
-            guard let parsed else { continue }
-            nextCache[file.path] = CachedFile(size: file.size, mtime: file.mtime, entries: parsed)
-        }
-        fileCache = nextCache
-
-        // Concatenate in path-sorted file order so dedup's keep-first preference is deterministic.
-        var entries: [Entry] = []
-        for file in files {
-            guard let cached = nextCache[file.path] else { continue }
-            entries.append(contentsOf: cached.entries)
-        }
+        let since = JSONLScanning.sinceDate(daysBack: daysBack, now: now)
+        // Entries come back concatenated in path-sorted file order, so dedup's keep-first is deterministic.
+        let entries = await scanner.items(from: files, since: since, parse: Self.parseFile)
         return Self.aggregate(entries: Self.dedup(entries), since: since, pricing: pricing)
-    }
-
-    /// Read + parse the changed files in parallel (they're independent; the first scan of a heavy
-    /// `projects/` tree is CPU-bound on JSON decoding). Results come back keyed to the input order;
-    /// a `nil` entry list marks an unreadable file.
-    private static func parseFiles(_ files: [DiscoveredFile]) async -> [(DiscoveredFile, [Entry]?)] {
-        await withTaskGroup(of: (Int, [Entry]?).self, returning: [(DiscoveredFile, [Entry]?)].self) { group in
-            for (index, file) in files.enumerated() {
-                group.addTask {
-                    guard let data = FileManager.default.contents(atPath: file.path) else {
-                        return (index, nil)
-                    }
-                    return (index, parseFile(data))
-                }
-            }
-            var results: [(DiscoveredFile, [Entry]?)] = files.map { ($0, nil) }
-            for await (index, entries) in group {
-                results[index] = (files[index], entries)
-            }
-            return results
-        }
     }
 
     // MARK: - Root and file discovery
@@ -190,40 +141,12 @@ actor ClaudeLogUsageScanner {
         return dirs.sorted { $0.path < $1.path }
     }
 
-    struct DiscoveredFile: Sendable {
-        var path: String
-        var size: Int
-        var mtime: Date
-    }
-
     /// Every `*.jsonl` under each root's `projects/`, path-sorted so the dedup pass (keep-first wins)
     /// is deterministic — the same order ccusage scans in.
-    private static func usageFiles(under roots: [URL]) -> [DiscoveredFile] {
-        var files: [DiscoveredFile] = []
-        for root in roots {
-            let projects = root.appendingPathComponent("projects")
-            let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
-            guard let enumerator = FileManager.default.enumerator(
-                at: projects, includingPropertiesForKeys: keys, options: []
-            ) else { continue }
-            for case let url as URL in enumerator {
-                guard url.pathExtension == "jsonl",
-                      let values = try? url.resourceValues(forKeys: Set(keys)),
-                      values.isRegularFile == true
-                else { continue }
-                files.append(DiscoveredFile(
-                    path: url.path,
-                    size: values.fileSize ?? 0,
-                    mtime: values.contentModificationDate ?? .distantPast
-                ))
-            }
-        }
-        return files.sorted { $0.path < $1.path }
-    }
-
-    private static func sinceDate(daysBack: Int, now: Date) -> Date {
-        let shifted = Calendar.current.date(byAdding: .day, value: -daysBack, to: now) ?? now
-        return Calendar.current.startOfDay(for: shifted)
+    private static func usageFiles(under roots: [URL]) -> [JSONLScanning.DiscoveredFile] {
+        roots
+            .flatMap { JSONLScanning.jsonlFiles(under: $0.appendingPathComponent("projects")) }
+            .sorted { $0.path < $1.path }
     }
 
     // MARK: - Line parsing
@@ -325,11 +248,12 @@ actor ClaudeLogUsageScanner {
     /// Claude never writes `null` into these fields; a line that does is a foreign/corrupt shape that
     /// ccusage skips before JSON parsing, and we match it byte-for-byte.
     static func hasUnsupportedNullField(_ line: Data.SubSequence) -> Bool {
-        let nullMarker = Array(":null".utf8)
+        let nullMarker = Data(":null".utf8)
         let quote = UInt8(ascii: "\"")
-        let bytes = Array(line)
-        var offset = 0
-        while let start = firstRange(of: nullMarker, in: bytes, from: offset) {
+        let bytes = Data(line) // fresh copy → indices are 0-based
+        var offset = bytes.startIndex
+        while let markerRange = bytes.range(of: nullMarker, in: offset..<bytes.endIndex) {
+            let start = markerRange.lowerBound
             var fieldEnd = start > 0 ? start - 1 : 0
             if bytes[fieldEnd] != quote {
                 while fieldEnd > 0, bytes[fieldEnd] != quote { fieldEnd -= 1 }
@@ -342,7 +266,7 @@ actor ClaudeLogUsageScanner {
                     if Self.unsupportedNullableFields.contains(field) { return true }
                 }
             }
-            offset = start + nullMarker.count
+            offset = markerRange.upperBound
         }
         return false
     }
@@ -351,14 +275,6 @@ actor ClaudeLogUsageScanner {
         "id", "cwd", "model", "speed", "costUSD", "version", "sessionId", "requestId",
         "isApiErrorMessage", "cache_read_input_tokens", "cache_creation_input_tokens"
     ]
-
-    private static func firstRange(of needle: [UInt8], in haystack: [UInt8], from offset: Int) -> Int? {
-        guard needle.count <= haystack.count - offset else { return nil }
-        for start in offset...(haystack.count - needle.count) {
-            if haystack[start..<(start + needle.count)].elementsEqual(needle) { return start }
-        }
-        return nil
-    }
 
     // MARK: - Deduplication
 
@@ -431,14 +347,10 @@ actor ClaudeLogUsageScanner {
     /// model's name lands in `unknownModelsByDay` (the tile's warning triangle), the only place
     /// unpriceable usage surfaces.
     static func aggregate(entries: [Entry], since: Date, pricing: ModelPricing) -> LogUsageScan {
-        var tokensByDay: [String: Int] = [:]
-        var costByDay: [String: Double] = [:]
-        var pricedDays: Set<String> = []
-        var unknownModelsByDay: [String: Set<String>] = [:]
-        var modelsByDay: [String: [String: ModelAccumulator]] = [:]
+        var accumulator = DailyUsageAccumulator()
 
         for entry in entries where entry.timestamp >= since {
-            let day = dayKey(from: entry.timestamp)
+            let day = DailyUsageAccumulator.dayKey(from: entry.timestamp)
             // One trimmed slug for pricing, the unknown-model warning, and the breakdown key alike —
             // diverging spellings would let the warning triangle and the hover panel disagree.
             let trimmedModel = entry.model?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -451,62 +363,15 @@ actor ClaudeLogUsageScanner {
                 cost = estimated
             } else {
                 if let model = trimmedModel, entry.tokens.totalTokens > 0 {
-                    unknownModelsByDay[day, default: []].insert(model)
+                    accumulator.addUnknownModel(day: day, model: model)
                 }
                 continue
             }
 
-            tokensByDay[day, default: 0] += entry.tokens.totalTokens
-            costByDay[day, default: 0] += cost
-            pricedDays.insert(day)
-            modelsByDay[day, default: [:]][modelName, default: ModelAccumulator()].add(
-                tokens: entry.tokens.totalTokens,
-                costUSD: cost
-            )
+            accumulator.add(day: day, tokens: entry.tokens.totalTokens, cost: cost, model: modelName)
         }
 
-        let days = tokensByDay.keys.sorted(by: >).map { day in
-            DailyUsageEntry(
-                date: day,
-                totalTokens: tokensByDay[day] ?? 0,
-                costUSD: pricedDays.contains(day) ? (costByDay[day] ?? 0) : nil
-            )
-        }
-        let modelUsage = ModelUsageSeries(daily: modelsByDay.keys.sorted(by: >).map { day in
-            DailyModelUsageEntry(
-                date: day,
-                models: modelsByDay[day, default: [:]].map { model, accumulator in
-                    accumulator.entry(model: model)
-                }
-            )
-        })
-        return LogUsageScan(
-            series: DailyUsageSeries(daily: days),
-            modelUsage: modelUsage,
-            unknownModelsByDay: unknownModelsByDay
-        )
-    }
-
-    /// Local calendar day as `yyyy-MM-dd`, matching `SpendTileMapper`'s day keys.
-    private static func dayKey(from date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
-    }
-
-    private struct ModelAccumulator {
-        var tokens = 0
-        var costUSD: Double?
-
-        mutating func add(tokens: Int, costUSD: Double?) {
-            self.tokens += tokens
-            if let costUSD {
-                self.costUSD = (self.costUSD ?? 0) + costUSD
-            }
-        }
-
-        func entry(model: String) -> ModelUsageEntry {
-            ModelUsageEntry(model: model, totalTokens: tokens, costUSD: costUSD)
-        }
+        return accumulator.build()
     }
 }
 

@@ -92,7 +92,6 @@ final class ZAIAuthStoreTests: XCTestCase {
         let auth = store.loadAPIKey()
 
         XCTAssertEqual(auth?.apiKey, "zai-file")
-        XCTAssertEqual(auth?.source, .configFile)
     }
 
     func testFallsBackToEnvironmentWhenNoConfigFile() {
@@ -104,7 +103,6 @@ final class ZAIAuthStoreTests: XCTestCase {
         let auth = store.loadAPIKey()
 
         XCTAssertEqual(auth?.apiKey, "zai-env")
-        XCTAssertEqual(auth?.source, .environment)
     }
 
     func testAcceptsLegacyGLMEnvName() {
@@ -136,7 +134,6 @@ final class ZAIAuthStoreTests: XCTestCase {
         let auth = store.loadAPIKey()
 
         XCTAssertEqual(auth?.apiKey, "zai-json")
-        XCTAssertEqual(auth?.source, .configFile)
     }
 
     func testReadsPlainTextKeyFile() {
@@ -163,7 +160,6 @@ final class ZAIAuthStoreTests: XCTestCase {
 
         XCTAssertEqual(files.files[ZAIAuthStore.configPaths[0]], #"{"apiKey":"zai-new"}"#)
         XCTAssertEqual(store.loadAPIKey()?.apiKey, "zai-new")
-        XCTAssertEqual(store.loadAPIKey()?.source, .configFile)
     }
 
     func testSaveAPIKeyRejectsEmptyKey() {
@@ -279,6 +275,28 @@ final class ZAIUsageMapperTests: XCTestCase {
         XCTAssertEqual(web.limit, 4000, accuracy: 0.001)
         XCTAssertEqual(web.format, .count(suffix: "searches"))
         XCTAssertEqual(web.periodDurationMs, 30 * 24 * 60 * 60 * 1000)
+    }
+
+    func testMeterWindowsFollowThePayloadNotTheHistoricConstants() throws {
+        // The meters carry the payload-computed window, not hardcoded 5h/7d — a 3-hour session window
+        // and a 3-day "weekly" window (unit 4 = days, multi-day → the Weekly meter) must plumb through.
+        let divergentJSON = #"""
+        {
+          "code": 200,
+          "data": {
+            "limits": [
+              { "type": "TOKENS_LIMIT", "unit": 3, "number": 3, "percentage": 10 },
+              { "type": "TOKENS_LIMIT", "unit": 4, "number": 3, "percentage": 20 }
+            ]
+          },
+          "success": true
+        }
+        """#
+        let mapped = ZAIUsageMapper.map(quotaBody: data(divergentJSON), subscriptionBody: nil)
+        XCTAssertEqual(try XCTUnwrap(progress(mapped.lines, "Session")).periodDurationMs,
+                       3 * 60 * 60 * 1000)
+        XCTAssertEqual(try XCTUnwrap(progress(mapped.lines, "Weekly")).periodDurationMs,
+                       3 * 24 * 60 * 60 * 1000)
     }
 
     func testMapsSessionOnlyWhenNoTimeLimit() throws {

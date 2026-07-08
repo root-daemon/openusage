@@ -21,7 +21,7 @@ The intentional difference in this fork is Codex auth:
 Everything else should track upstream OpenUsage unless a custom change is explicitly called out.
 
 <p align="center">
-  <img src="assets/screenshot.jpg" alt="OpenUsage menu bar tracker showing Claude and Codex session, weekly, and spend usage" width="900">
+  <img src="assets/screenshot.jpg?v=20260706" alt="OpenUsage menu bar tracker showing Claude and Codex session, weekly, and spend usage" width="900">
 </p>
 
 ## Installation

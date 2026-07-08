@@ -43,12 +43,7 @@ struct GrokLogUsageScanner: Sendable {
         guard files.exists(path), let text = try? files.readText(path) else {
             return nil
         }
-        return Self.parse(text, since: sinceDate(daysBack: daysBack, now: now), pricing: pricing)
-    }
-
-    private func sinceDate(daysBack: Int, now: Date) -> Date {
-        let shifted = Calendar.current.date(byAdding: .day, value: -daysBack, to: now) ?? now
-        return Calendar.current.startOfDay(for: shifted)
+        return Self.parse(text, since: JSONLScanning.sinceDate(daysBack: daysBack, now: now), pricing: pricing)
     }
 
     /// Single chronological pass over the append-only log. Model-carrying events update a per-`pid`
@@ -57,11 +52,7 @@ struct GrokLogUsageScanner: Sendable {
     /// bucketed by local calendar day.
     static func parse(_ text: String, since: Date, pricing: ModelPricing) -> LogUsageScan {
         var modelByPID: [Int: String] = [:]
-        var tokensByDay: [String: Int] = [:]
-        var costByDay: [String: Double] = [:]
-        var pricedDays: Set<String> = []
-        var unknownModelsByDay: [String: Set<String>] = [:]
-        var modelsByDay: [String: [String: ModelAccumulator]] = [:]
+        var accumulator = DailyUsageAccumulator()
 
         text.enumerateLines { line, _ in
             // Cheap pre-filter before JSON parsing: only model-carrying events and token rows matter
@@ -94,7 +85,7 @@ struct GrokLogUsageScanner: Sendable {
             let inputNoCache = Int(max(0, promptTokens - cached))
             let output = completion + reasoning
 
-            let day = dayKey(from: timestamp)
+            let day = DailyUsageAccumulator.dayKey(from: timestamp)
             let totalTokens = Int(promptTokens) + output
 
             // Grok's token rows lack a model id; attribute via the row's process. Rows that can't be
@@ -107,39 +98,14 @@ struct GrokLogUsageScanner: Sendable {
             let tokenBreakdown = TokenBreakdown(input: inputNoCache, cacheRead: cacheRead, output: output)
             guard let cost = pricing.estimatedCostDollars(model: model, tokens: tokenBreakdown) else {
                 if totalTokens > 0 {
-                    unknownModelsByDay[day, default: []].insert(model)
+                    accumulator.addUnknownModel(day: day, model: model)
                 }
                 return
             }
-            tokensByDay[day, default: 0] += totalTokens
-            costByDay[day, default: 0] += cost
-            pricedDays.insert(day)
-            modelsByDay[day, default: [:]][model, default: ModelAccumulator()].add(
-                tokens: totalTokens,
-                costUSD: cost
-            )
+            accumulator.add(day: day, tokens: totalTokens, cost: cost, model: model)
         }
 
-        let days = tokensByDay.keys.sorted(by: >).map { day in
-            DailyUsageEntry(
-                date: day,
-                totalTokens: tokensByDay[day] ?? 0,
-                costUSD: pricedDays.contains(day) ? (costByDay[day] ?? 0) : nil
-            )
-        }
-        let modelUsage = ModelUsageSeries(daily: modelsByDay.keys.sorted(by: >).map { day in
-            DailyModelUsageEntry(
-                date: day,
-                models: modelsByDay[day, default: [:]].map { model, accumulator in
-                    accumulator.entry(model: model)
-                }
-            )
-        })
-        return LogUsageScan(
-            series: DailyUsageSeries(daily: days),
-            modelUsage: modelUsage,
-            unknownModelsByDay: unknownModelsByDay
-        )
+        return accumulator.build()
     }
 
     /// The model id carried by a model-change event, or `nil` for any other line. The Grok CLI signals
@@ -164,26 +130,4 @@ struct GrokLogUsageScanner: Sendable {
         return model
     }
 
-    /// Local calendar day as `yyyy-MM-dd`, matching `SpendTileMapper`'s day keys so the Today /
-    /// Yesterday lookups line up.
-    private static func dayKey(from date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
-    }
-
-    private struct ModelAccumulator {
-        var tokens = 0
-        var costUSD: Double?
-
-        mutating func add(tokens: Int, costUSD: Double?) {
-            self.tokens += tokens
-            if let costUSD {
-                self.costUSD = (self.costUSD ?? 0) + costUSD
-            }
-        }
-
-        func entry(model: String) -> ModelUsageEntry {
-            ModelUsageEntry(model: model, totalTokens: tokens, costUSD: costUSD)
-        }
-    }
 }

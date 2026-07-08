@@ -28,6 +28,9 @@ final class StatusItemController: NSObject {
     private let container: AppContainer
     private let updater: UpdaterController
     private let statusItem: NSStatusItem
+    /// Owns the menu-bar strip render loop. Its apply closure captures the `NSStatusItem` directly
+    /// (which never retains the controller), so this can be a plain non-optional `let`.
+    private let imageUpdater: StatusItemImageUpdater
     private let panel: MenuBarPanel
     private let hostingController: NSHostingController<AnyView>
     /// The panel's backdrop: an opaque tray by default, swapped to a behind-window vibrancy view when
@@ -69,7 +72,14 @@ final class StatusItemController: NSObject {
     init(container: AppContainer, updater: UpdaterController) {
         self.container = container
         self.updater = updater
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        self.statusItem = statusItem
+        // Captures the status item, not `self` — no retain cycle, and no optional property just to
+        // work around `[weak self]` being unavailable before `super.init()`. The button is resolved
+        // lazily at each apply, so a not-yet-configured button is harmless (same as before the split).
+        self.imageUpdater = StatusItemImageUpdater(container: container) { image in
+            statusItem.button?.image = image
+        }
 
         let hosting = NSHostingController(
             rootView: AnyView(
@@ -97,7 +107,7 @@ final class StatusItemController: NSObject {
 
         configurePanel()
         configureStatusItem()
-        updateButtonImage()
+        imageUpdater.update()
         applyTransparency()
 
         appearanceObserver = NotificationCenter.default.addObserver(
@@ -204,49 +214,6 @@ final class StatusItemController: NSObject {
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
-    // MARK: - Status item image
-
-    /// Coalesces re-render requests: a burst of snapshot writes (a multi-provider refresh pass) must
-    /// produce ~one re-render, not O(writes) MainActor Task hops + ImageRenderer passes. `nil` when idle.
-    private var pendingRenderTask: Task<Void, Never>?
-
-    /// Re-renders the menu-bar strip whenever anything it reads changes (pins, live data, meter
-    /// style, menu-bar style). `withObservationTracking`'s `onChange` is one-shot, so each render
-    /// re-arms it. The re-arm is debounced (see `scheduleButtonImageUpdate`).
-    private func updateButtonImage() {
-        let image = withObservationTracking {
-            renderButtonImage()
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleButtonImageUpdate()
-            }
-        }
-        statusItem.button?.image = image
-    }
-
-    /// Debounce the re-render so a refresh-storm burst of snapshot writes collapses into a single
-    /// render once the burst settles, instead of one render per write — the feedback loop that can
-    /// starve the MainActor and drop the status item (the "menu bar disappears" failure mode).
-    private func scheduleButtonImageUpdate() {
-        pendingRenderTask?.cancel()
-        pendingRenderTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled else { return }
-            self?.updateButtonImage()
-        }
-    }
-
-    /// The pinned-metrics strip in the chosen style, or the app icon when nothing is pinned.
-    private func renderButtonImage() -> NSImage {
-        let content = MenuBarContentBuilder.build(
-            groups: container.layout.pinnedGroups,
-            data: { container.dataStore.data(for: $0) }
-        )
-        return MenuBarStripRenderer.image(for: content, style: container.layout.menuBarStyle)
-            ?? MenuBarIcon.image
-            ?? MenuBarStripRenderer.fallbackIcon
-    }
-
     // MARK: - Transparency
 
     /// True once the launch application has run, so subsequent style changes animate (the first one
@@ -254,7 +221,8 @@ final class StatusItemController: NSObject {
     private var hasAppliedTransparency = false
 
     /// Applies the resolved transparency style to the panel and re-arms on the next change. Mirrors
-    /// `updateButtonImage`'s `withObservationTracking` re-arm (its `onChange` is one-shot). Reads the
+    /// `StatusItemImageUpdater.update()`'s `withObservationTracking` re-arm (its `onChange` is
+    /// one-shot). Reads the
     /// store's `effectiveStyle`, which folds in the persisted toggle, the egg state, and the system
     /// accessibility flags — so this fires whenever any of them changes. Backdrop already exists (it's a
     /// stored property), so the first call from `init` safely sets the initial look.
@@ -391,8 +359,7 @@ final class StatusItemController: NSObject {
         // no hover-exit and would orphan on screen — clear it here, the one chokepoint every close hits.
         // The Usage Trend hover popover is on the same survives-orderOut footing, so dismiss it too.
         HoverTooltips.dismissAll()
-        TrendHoverState.dismissAll()
-        ModelHoverState.dismissAll()
+        HoverPopoverState.dismissAll()
         // Same survival problem for keyboard focus: a clicked plain-styled control (a row's Used/Left
         // or reset toggle) stays first responder, so its focus ring would reopen with the popover as a
         // stray blue outline. Drop it on close so every reopen starts unfocused.
@@ -557,18 +524,12 @@ final class StatusItemController: NSObject {
             let screenPoint = NSEvent.mouseLocation
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                // While the panel is morphing its height, its frame is moving under a possibly
-                // stationary cursor — don't let a click land "outside" a frame that's mid-resize.
-                guard !self.isMorphing else { return }
-                // A sheet is attached to the panel (e.g. the Customize "Reset All Customization"
-                // confirmation alert). A click in another app would otherwise close the popover out
-                // from under the alert — keep the panel open for the sheet's lifetime.
-                guard self.panel.attachedSheet == nil else { return }
-                // Clicking the status item must NOT dismiss here — its own action toggles the panel.
-                // Dismissing on this click's mouse-down would close the panel, then the button action
-                // would reopen it on mouse-up (the close-then-reopen flicker).
-                guard !self.isOnStatusButton(screenPoint: screenPoint),
-                      !self.panel.frame.contains(screenPoint) else { return }
+                // A global monitor only fires for clicks in OTHER apps, so there's no in-process window
+                // to identify — the shared keep-open policy decides on position alone (mid-morph frame,
+                // an attached sheet, the status button, or the panel frame). Passing nil window info is
+                // the accurate input, and reusing `shouldKeepPanelOpen` keeps the two monitors in step.
+                guard !self.shouldKeepPanelOpen(windowID: nil, windowTypeName: nil, screenPoint: screenPoint)
+                else { return }
                 self.hidePanel()
             }
         }) {

@@ -61,22 +61,9 @@ private struct TooMuchTransparencyModifier: ViewModifier {
 /// composite against the AppKit vibrancy view behind the host, so the desktop only blends through via
 /// alpha — hence the reduced opacity rather than a blend mode.)
 private struct PartyBackdrop: View {
-    @Environment(\.popoverIsVisible) private var shown
-
     var body: some View {
-        // The churning clock is mounted only while the popover is on-screen; closed, it drops to a static
-        // frame so no display link ticks (see `\.popoverIsVisible`).
-        if shown {
-            TimelineView(.animation) { timeline in
-                gradient(at: timeline.date.timeIntervalSinceReferenceDate)
-            }
-            .transition(.identity)
-        } else {
-            // Static frame at the current instant: matches the live clock's first frame, so the (at most
-            // one-frame) static render during a show is indistinguishable from the running animation.
-            gradient(at: Date().timeIntervalSinceReferenceDate)
-                .transition(.identity)
-        }
+        // Churning clock mounts only while the popover is on-screen (see `VisibilityGatedTimeline`).
+        VisibilityGatedTimeline { t in gradient(at: t) }
     }
 
     private func gradient(at t: TimeInterval) -> some View {
@@ -96,18 +83,8 @@ private struct PartyBackdrop: View {
 
 /// A glowing rim that rotates around the popover edge — pure party, never over the text.
 private struct PartyRim: View {
-    @Environment(\.popoverIsVisible) private var shown
-
     var body: some View {
-        if shown {
-            TimelineView(.animation) { timeline in
-                rim(at: timeline.date.timeIntervalSinceReferenceDate)
-            }
-            .transition(.identity)
-        } else {
-            rim(at: Date().timeIntervalSinceReferenceDate)
-                .transition(.identity)
-        }
+        VisibilityGatedTimeline { t in rim(at: t) }
     }
 
     private func rim(at t: TimeInterval) -> some View {
@@ -131,18 +108,15 @@ private struct PartyRim: View {
 /// would visibly remove the blur the instant the popover closes.
 private struct DrunkDistortion: ViewModifier {
     let active: Bool
-    @Environment(\.popoverIsVisible) private var shown
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if active && shown {
-            TimelineView(.animation) { timeline in
-                distort(content, at: timeline.date.timeIntervalSinceReferenceDate)
-            }
-            .transition(.identity)
-        } else if active {
-            distort(content, at: Date().timeIntervalSinceReferenceDate)
-                .transition(.identity)
+        // Three effective states, deliberately kept distinct: active + popover shown → live distortion;
+        // active + hidden → frozen at a static frame (collapsing this into the inactive branch would
+        // visibly strip the blur the instant the popover closes); inactive → untouched content (no
+        // `TimelineView`, no cost). The shown/hidden split lives in `VisibilityGatedTimeline`.
+        if active {
+            VisibilityGatedTimeline { t in distort(content, at: t) }
         } else {
             content
         }
@@ -161,18 +135,8 @@ private struct DrunkDistortion: ViewModifier {
 /// The pink-glass haze layered over the content: a clear-glass lens (the deliberate Liquid Glass abuse)
 /// and a slowly churning pink wash — double-vision territory.
 private struct DrunkOverlays: View {
-    @Environment(\.popoverIsVisible) private var shown
-
     var body: some View {
-        if shown {
-            TimelineView(.animation) { timeline in
-                haze(at: timeline.date.timeIntervalSinceReferenceDate)
-            }
-            .transition(.identity)
-        } else {
-            haze(at: Date().timeIntervalSinceReferenceDate)
-                .transition(.identity)
-        }
+        VisibilityGatedTimeline { t in haze(at: t) }
     }
 
     private func haze(at t: TimeInterval) -> some View {

@@ -47,13 +47,8 @@ actor CodexLogUsageScanner {
         var total: Int
     }
 
-    private struct CachedFile {
-        var size: Int
-        var mtime: Date
-        var events: [Event]
-    }
-
-    private var fileCache: [String: CachedFile] = [:]
+    /// Off-main-actor incremental parse cache (keyed path + size + mtime), owned by the shared scanner.
+    private let scanner = IncrementalJSONLScanner<Event>()
 
     /// Scan the last `daysBack` days of Codex rollouts. Returns `nil` when no Codex home or no
     /// session files exist (the spend tiles then render "No data").
@@ -62,28 +57,8 @@ actor CodexLogUsageScanner {
         let files = Self.sessionFiles(homes: homes)
         guard !files.isEmpty else { return nil }
 
-        let since = Self.sinceDate(daysBack: daysBack, now: now)
-        var nextCache: [String: CachedFile] = [:]
-        var toParse: [DiscoveredFile] = []
-        for file in files {
-            guard file.mtime >= since else { continue }
-            if let cached = fileCache[file.path], cached.size == file.size, cached.mtime == file.mtime {
-                nextCache[file.path] = cached
-            } else {
-                toParse.append(file)
-            }
-        }
-        for (file, events) in await Self.parseFiles(toParse) {
-            guard let events else { continue }
-            nextCache[file.path] = CachedFile(size: file.size, mtime: file.mtime, events: events)
-        }
-        fileCache = nextCache
-
-        var events: [Event] = []
-        for file in files {
-            guard let cached = nextCache[file.path] else { continue }
-            events.append(contentsOf: cached.events)
-        }
+        let since = JSONLScanning.sinceDate(daysBack: daysBack, now: now)
+        let events = await scanner.items(from: files, since: since, parse: Self.parseFile)
         return Self.aggregate(
             events: events, since: since, pricing: pricing, fastTier: usesFastServiceTier(homes: homes)
         )
@@ -103,17 +78,11 @@ actor CodexLogUsageScanner {
         return [homeDirectory().appendingPathComponent(".codex")]
     }
 
-    struct DiscoveredFile: Sendable {
-        var path: String
-        var size: Int
-        var mtime: Date
-    }
-
     /// Every rollout `*.jsonl` under each home's `sessions/` and `archived_sessions/` (a home with
     /// neither is scanned directly, ccusage's fallback). When both dirs of one home contain the same
     /// relative path, the `sessions/` copy wins — an archived duplicate must not double-count.
-    private static func sessionFiles(homes: [URL]) -> [DiscoveredFile] {
-        var files: [DiscoveredFile] = []
+    private static func sessionFiles(homes: [URL]) -> [JSONLScanning.DiscoveredFile] {
+        var files: [JSONLScanning.DiscoveredFile] = []
         var seenDirs: Set<String> = []
         for home in homes {
             var seenRelative: Set<String> = []
@@ -129,7 +98,7 @@ actor CodexLogUsageScanner {
                 sourceDirs = [home]
             }
             for dir in sourceDirs where seenDirs.insert(dir.path).inserted {
-                for file in jsonlFiles(under: dir) {
+                for file in JSONLScanning.jsonlFiles(under: dir) {
                     let relative = String(file.path.dropFirst(dir.path.count))
                     guard seenRelative.insert(relative).inserted else { continue }
                     files.append(file)
@@ -137,31 +106,6 @@ actor CodexLogUsageScanner {
             }
         }
         return files
-    }
-
-    private static func jsonlFiles(under dir: URL) -> [DiscoveredFile] {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: dir, includingPropertiesForKeys: keys, options: []
-        ) else { return [] }
-        var files: [DiscoveredFile] = []
-        for case let url as URL in enumerator {
-            guard url.pathExtension == "jsonl",
-                  let values = try? url.resourceValues(forKeys: Set(keys)),
-                  values.isRegularFile == true
-            else { continue }
-            files.append(DiscoveredFile(
-                path: url.path,
-                size: values.fileSize ?? 0,
-                mtime: values.contentModificationDate ?? .distantPast
-            ))
-        }
-        return files.sorted { $0.path < $1.path }
-    }
-
-    private static func sinceDate(daysBack: Int, now: Date) -> Date {
-        let shifted = Calendar.current.date(byAdding: .day, value: -daysBack, to: now) ?? now
-        return Calendar.current.startOfDay(for: shifted)
     }
 
     /// The user runs Codex on the fast/priority service tier (billed at the fast multiplier) when
@@ -187,24 +131,6 @@ actor CodexLogUsageScanner {
 
     // MARK: - File parsing
 
-    private static func parseFiles(_ files: [DiscoveredFile]) async -> [(DiscoveredFile, [Event]?)] {
-        await withTaskGroup(of: (Int, [Event]?).self, returning: [(DiscoveredFile, [Event]?)].self) { group in
-            for (index, file) in files.enumerated() {
-                group.addTask {
-                    guard let data = FileManager.default.contents(atPath: file.path) else {
-                        return (index, nil)
-                    }
-                    return (index, parseFile(data))
-                }
-            }
-            var results: [(DiscoveredFile, [Event]?)] = files.map { ($0, nil) }
-            for await (index, events) in group {
-                results[index] = (files[index], events)
-            }
-            return results
-        }
-    }
-
     /// Parse one rollout file: track the current model from `turn_context`, normalize each
     /// `token_count` into a delta event, and skip a subagent's replayed parent counts.
     static func parseFile(_ data: Data) -> [Event] {
@@ -217,7 +143,6 @@ actor CodexLogUsageScanner {
         var events: [Event] = []
         var previousTotals: RawUsage?
         var currentModel: String?
-        var currentModelIsFallback = false
         var skipReplay = replaySecond != nil
 
         for line in data.split(separator: UInt8(ascii: "\n")) {
@@ -231,7 +156,6 @@ actor CodexLogUsageScanner {
             if type == "turn_context" {
                 if let model = payload.flatMap(modelName(in:)) {
                     currentModel = model
-                    currentModelIsFallback = false
                 }
                 continue
             }
@@ -270,8 +194,7 @@ actor CodexLogUsageScanner {
             let model = resolveModel(
                 parsed: parsedModel,
                 timestamp: timestampRaw,
-                currentModel: &currentModel,
-                currentModelIsFallback: &currentModelIsFallback
+                currentModel: &currentModel
             )
 
             events.append(Event(
@@ -375,12 +298,10 @@ actor CodexLogUsageScanner {
     static func resolveModel(
         parsed: String?,
         timestamp: String,
-        currentModel: inout String?,
-        currentModelIsFallback: inout Bool
+        currentModel: inout String?
     ) -> String {
         if let parsed {
             currentModel = parsed
-            currentModelIsFallback = false
         }
         var model: String
         if let parsed {
@@ -389,7 +310,6 @@ actor CodexLogUsageScanner {
             model = current
         } else {
             currentModel = "gpt-5"
-            currentModelIsFallback = true
             model = "gpt-5"
         }
         if model == Self.autoReviewModel {
@@ -444,11 +364,7 @@ actor CodexLogUsageScanner {
         events: [Event], since: Date, pricing: ModelPricing, fastTier: Bool
     ) -> LogUsageScan {
         var seen: Set<EventKey> = []
-        var tokensByDay: [String: Int] = [:]
-        var costByDay: [String: Double] = [:]
-        var pricedDays: Set<String> = []
-        var unknownModelsByDay: [String: Set<String>] = [:]
-        var modelsByDay: [String: [String: ModelAccumulator]] = [:]
+        var accumulator = DailyUsageAccumulator()
 
         for event in events where event.timestamp >= since {
             let key = EventKey(
@@ -457,47 +373,22 @@ actor CodexLogUsageScanner {
             )
             guard seen.insert(key).inserted else { continue }
 
-            let day = dayKey(from: event.timestamp)
+            let day = DailyUsageAccumulator.dayKey(from: event.timestamp)
             // One trimmed slug for pricing, the unknown-model warning, and the breakdown key alike —
             // diverging spellings would let the warning triangle and the hover panel disagree.
             let trimmedModel = event.model.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
 
             guard let model = trimmedModel, let rates = pricing.resolve(model: model) else {
                 if let model = trimmedModel, event.total > 0 {
-                    unknownModelsByDay[day, default: []].insert(model)
+                    accumulator.addUnknownModel(day: day, model: model)
                 }
                 continue
             }
             let eventCost = cost(rates: rates, event: event, fastTier: fastTier)
-            tokensByDay[day, default: 0] += event.total
-            costByDay[day, default: 0] += eventCost
-            pricedDays.insert(day)
-            modelsByDay[day, default: [:]][model, default: ModelAccumulator()].add(
-                tokens: event.total,
-                costUSD: eventCost
-            )
+            accumulator.add(day: day, tokens: event.total, cost: eventCost, model: model)
         }
 
-        let days = tokensByDay.keys.sorted(by: >).map { day in
-            DailyUsageEntry(
-                date: day,
-                totalTokens: tokensByDay[day] ?? 0,
-                costUSD: pricedDays.contains(day) ? (costByDay[day] ?? 0) : nil
-            )
-        }
-        let modelUsage = ModelUsageSeries(daily: modelsByDay.keys.sorted(by: >).map { day in
-            DailyModelUsageEntry(
-                date: day,
-                models: modelsByDay[day, default: [:]].map { model, accumulator in
-                    accumulator.entry(model: model)
-                }
-            )
-        })
-        return LogUsageScan(
-            series: DailyUsageSeries(daily: days),
-            modelUsage: modelUsage,
-            unknownModelsByDay: unknownModelsByDay
-        )
+        return accumulator.build()
     }
 
     /// Codex cost math (ccusage's): non-cached input at the input rate, cached input at the
@@ -510,26 +401,5 @@ actor CodexLogUsageScanner {
         return (Double(nonCached) * rates.inputPerMillion
             + Double(event.cached) * rates.cacheReadPerMillion
             + Double(event.output) * rates.outputPerMillion) / 1_000_000 * multiplier
-    }
-
-    private static func dayKey(from date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
-    }
-
-    private struct ModelAccumulator {
-        var tokens = 0
-        var costUSD: Double?
-
-        mutating func add(tokens: Int, costUSD: Double?) {
-            self.tokens += tokens
-            if let costUSD {
-                self.costUSD = (self.costUSD ?? 0) + costUSD
-            }
-        }
-
-        func entry(model: String) -> ModelUsageEntry {
-            ModelUsageEntry(model: model, totalTokens: tokens, costUSD: costUSD)
-        }
     }
 }

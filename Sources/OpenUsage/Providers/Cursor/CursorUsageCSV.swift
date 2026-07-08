@@ -7,7 +7,6 @@ import Foundation
 struct CursorUsageCSVRow: Sendable, Equatable {
     var date: Date
     var model: String
-    var maxMode: Bool
     var tokens: TokenBreakdown
     var imputedCostDollars: Double?
 }
@@ -48,7 +47,6 @@ enum CursorUsageCSV {
             else { return }
 
             let model = (r["Model"] ?? "").trimmingCharacters(in: .whitespaces)
-            let maxMode = (r["Max Mode"] ?? "").trimmingCharacters(in: .whitespaces).lowercased() == "yes"
             // The CSV's "Input (w/ Cache Write)" tokens were written to the prompt cache; Anthropic
             // bills those at the 5-minute cache-write rate, other providers at the input rate (their
             // pricing entries carry cacheWrite == input).
@@ -62,7 +60,6 @@ enum CursorUsageCSV {
             rows.append(CursorUsageCSVRow(
                 date: date,
                 model: model,
-                maxMode: maxMode,
                 tokens: tokens,
                 imputedCostDollars: pricing.estimatedCostDollars(model: model, tokens: tokens)
             ))

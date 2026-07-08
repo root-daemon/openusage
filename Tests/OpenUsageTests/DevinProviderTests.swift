@@ -17,7 +17,6 @@ final class DevinAuthStoreTests: XCTestCase {
 
         XCTAssertEqual(auth?.apiKey, "devin-session-token$cli")
         XCTAssertEqual(auth?.apiServerUrl, "https://server.codeium.test")
-        XCTAssertEqual(auth?.source, .credentialsFile)
     }
 
     func testIgnoresPlaintextServerURL() {
@@ -44,7 +43,6 @@ final class DevinAuthStoreTests: XCTestCase {
         let auth = store.loadAppAuth()
 
         XCTAssertEqual(auth?.apiKey, "devin-session-token$app")
-        XCTAssertEqual(auth?.source, .appState)
         XCTAssertEqual(sqlite.lastPath, DevinAuthStore.stateDBPath)
         XCTAssertEqual(sqlite.lastSQL?.contains("windsurfAuthStatus"), true)
     }

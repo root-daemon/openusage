@@ -43,7 +43,7 @@ final class ClaudeProvider: ProviderRuntime {
 
     var widgetDescriptors: [WidgetDescriptor] {
         [
-            .percent(id: "claude.session", provider: provider, title: "Session"),
+            .percent(id: "claude.session", provider: provider, title: "Session", isSessionWindow: true),
             .percent(id: "claude.weekly", provider: provider, title: "Weekly"),
             .percent(id: "claude.sonnet", provider: provider, title: "Sonnet"),
             .percent(id: "claude.fable", provider: provider, title: "Fable"),

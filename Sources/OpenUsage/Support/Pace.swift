@@ -62,12 +62,6 @@ enum Pace {
         return Result(status: status, projectedUsage: projected)
     }
 
-    /// Just the pace classification, or `nil` when there's no signal.
-    static func status(used: Double, limit: Double, resetsAt: Date, periodDuration: TimeInterval,
-                       now: Date = Date()) -> Status? {
-        evaluate(used: used, limit: limit, resetsAt: resetsAt, periodDuration: periodDuration, now: now)?.status
-    }
-
     /// Projected seconds until the quota is exhausted, but only when we're `behind` and the run-out lands
     /// before the window resets (otherwise there's nothing to warn about). Mirrors `getRunsOutDurationText`.
     static func secondsToRunOut(used: Double, limit: Double, resetsAt: Date, periodDuration: TimeInterval,

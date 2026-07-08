@@ -43,7 +43,7 @@ final class TelemetryStore {
 
     /// Whether telemetry is enabled. Opt-out design: defaults to `true` when the user has never chosen.
     var enabled: Bool {
-        get { defaults.object(forKey: Self.enabledKey) as? Bool ?? true }
+        get { defaults.bool(forKey: Self.enabledKey, default: true) }
         set { defaults.set(newValue, forKey: Self.enabledKey) }
     }
 

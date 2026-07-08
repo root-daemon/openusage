@@ -58,7 +58,7 @@ final class ClaudeAuthStoreTests: XCTestCase {
         let hashedService = store.keychainServiceCandidates().first!
         keychain.currentUserValues[hashedService] = #"{"claudeAiOauth":{"accessToken":"keychain-token","subscriptionType":"max"}}"#
 
-        let credentials = store.loadCredentials()
+        let credentials = store.loadCredentialCandidates().first
 
         XCTAssertTrue(hashedService.hasPrefix("Claude Code-credentials-"))
         XCTAssertEqual(credentials?.oauth.accessToken, "keychain-token")
@@ -85,7 +85,7 @@ final class ClaudeAuthStoreTests: XCTestCase {
         let candidates = store.loadCredentialCandidates()
 
         XCTAssertEqual(candidates.map(\.oauth.accessToken), ["keychain-token", "file-token"])
-        XCTAssertEqual(store.loadCredentials()?.oauth.accessToken, "keychain-token")
+        XCTAssertEqual(store.loadCredentialCandidates().first?.oauth.accessToken, "keychain-token")
     }
 
     func testEnvironmentTokenIsInferenceOnly() {
@@ -95,10 +95,9 @@ final class ClaudeAuthStoreTests: XCTestCase {
             keychain: FakeKeychain()
         )
 
-        let credentials = store.loadCredentials()
+        let credentials = store.loadCredentialCandidates().first
 
         XCTAssertEqual(credentials?.oauth.accessToken, "env-token")
-        XCTAssertFalse(store.canFetchLiveUsage(credentials!))
         XCTAssertEqual(store.liveUsageAvailability(credentials!), .inferenceOnlyToken)
     }
 
@@ -119,7 +118,6 @@ final class ClaudeAuthStoreTests: XCTestCase {
         XCTAssertEqual(store.liveUsageAvailability(state(["user:inference", "user:profile"])), .available)
         // An inference-only token (e.g. from `claude setup-token`) lacks user:profile → can't read usage.
         XCTAssertEqual(store.liveUsageAvailability(state(["user:inference"])), .missingProfileScope)
-        XCTAssertFalse(store.canFetchLiveUsage(state(["user:inference"])))
         // An explicit env token is inference-only by design: silent, not a missing-scope notice.
         XCTAssertEqual(store.liveUsageAvailability(state(["user:inference"], inferenceOnly: true)), .inferenceOnlyToken)
     }
@@ -385,7 +383,7 @@ final class ClaudeProviderTests: XCTestCase {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["OPENUSAGE_LIVE_CLAUDE"] == "1")
 
         let store = ClaudeAuthStore()
-        guard let state = store.loadCredentials() else {
+        guard let state = store.loadCredentialCandidates().first else {
             throw XCTSkip("No Claude credentials on this machine")
         }
 

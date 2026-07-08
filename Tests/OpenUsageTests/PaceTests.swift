@@ -16,27 +16,27 @@ final class PaceTests: XCTestCase {
 
     func testZeroUsageIsAhead() {
         let reset = resetsAt(elapsed: 0.5, period: week)
-        XCTAssertEqual(Pace.status(used: 0, limit: 100, resetsAt: reset, periodDuration: week, now: now), .ahead)
+        XCTAssertEqual(Pace.evaluate(used: 0, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .ahead)
     }
 
     func testAtOrOverLimitIsBehind() {
         let reset = resetsAt(elapsed: 0.5, period: week)
-        XCTAssertEqual(Pace.status(used: 100, limit: 100, resetsAt: reset, periodDuration: week, now: now), .behind)
-        XCTAssertEqual(Pace.status(used: 130, limit: 100, resetsAt: reset, periodDuration: week, now: now), .behind)
+        XCTAssertEqual(Pace.evaluate(used: 100, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .behind)
+        XCTAssertEqual(Pace.evaluate(used: 130, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .behind)
     }
 
     func testEarlyInWindowStillProjectsPace() {
         let reset = resetsAt(elapsed: 0.02, period: week)
-        XCTAssertEqual(Pace.status(used: 5, limit: 100, resetsAt: reset, periodDuration: week, now: now), .behind)
+        XCTAssertEqual(Pace.evaluate(used: 5, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .behind)
     }
 
     func testAheadOnTrackBehindThresholds() {
         let reset = resetsAt(elapsed: 0.5, period: week) // half the window gone → projected = used * 2
-        XCTAssertEqual(Pace.status(used: 30, limit: 100, resetsAt: reset, periodDuration: week, now: now), .ahead)   // 60 ≤ 90
-        XCTAssertEqual(Pace.status(used: 44, limit: 100, resetsAt: reset, periodDuration: week, now: now), .ahead)   // 88 ≤ 90
-        XCTAssertEqual(Pace.status(used: 46, limit: 100, resetsAt: reset, periodDuration: week, now: now), .onTrack) // 92 in (90,100]
-        XCTAssertEqual(Pace.status(used: 50, limit: 100, resetsAt: reset, periodDuration: week, now: now), .onTrack) // 100 lands exactly on the limit
-        XCTAssertEqual(Pace.status(used: 60, limit: 100, resetsAt: reset, periodDuration: week, now: now), .behind)  // 120 > 100
+        XCTAssertEqual(Pace.evaluate(used: 30, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .ahead)   // 60 ≤ 90
+        XCTAssertEqual(Pace.evaluate(used: 44, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .ahead)   // 88 ≤ 90
+        XCTAssertEqual(Pace.evaluate(used: 46, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .onTrack) // 92 in (90,100]
+        XCTAssertEqual(Pace.evaluate(used: 50, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .onTrack) // 100 lands exactly on the limit
+        XCTAssertEqual(Pace.evaluate(used: 60, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .behind)  // 120 > 100
     }
 
     func testEvaluateProjectsEndOfPeriodUsage() {
@@ -145,7 +145,7 @@ final class PaceTests: XCTestCase {
 
     func testProjectedExactlyAtLimitIsRedNotAmber() {
         let reset = resetsAt(elapsed: 0.5, period: week)
-        XCTAssertEqual(Pace.status(used: 50, limit: 100, resetsAt: reset, periodDuration: week, now: now), .onTrack)
+        XCTAssertEqual(Pace.evaluate(used: 50, limit: 100, resetsAt: reset, periodDuration: week, now: now)?.status, .onTrack)
         guard case .runningOut(let eta, _) = weeklyData(used: 50).meterState(now: now) else {
             return XCTFail("expected runningOut")
         }
@@ -178,9 +178,9 @@ final class PaceTests: XCTestCase {
                               used: 2, limit: 100)
         data.resetsAt = resetsAt(elapsed: elapsed, period: session)
         data.periodDurationMs = Int(session * 1000)
-        XCTAssertEqual(Pace.status(used: 2, limit: 100,
-                                   resetsAt: data.resetsAt!,
-                                   periodDuration: session, now: now), .behind)
+        XCTAssertEqual(Pace.evaluate(used: 2, limit: 100,
+                                     resetsAt: data.resetsAt!,
+                                     periodDuration: session, now: now)?.status, .behind)
         // Projection distrusted near-empty: a calm level bar, never a fabricated projection cushion.
         XCTAssertEqual(data.meterState(now: now), .level(.normal))
     }
@@ -192,9 +192,9 @@ final class PaceTests: XCTestCase {
                               used: 6, limit: 100)
         data.resetsAt = resetsAt(elapsed: elapsed, period: session)
         data.periodDurationMs = Int(session * 1000)
-        XCTAssertEqual(Pace.status(used: 6, limit: 100,
-                                   resetsAt: data.resetsAt!,
-                                   periodDuration: session, now: now), .behind)
+        XCTAssertEqual(Pace.evaluate(used: 6, limit: 100,
+                                     resetsAt: data.resetsAt!,
+                                     periodDuration: session, now: now)?.status, .behind)
         guard case .runningOut = data.meterState(now: now) else {
             return XCTFail("expected runningOut when burning fast with ≥5% used")
         }

@@ -104,7 +104,6 @@ struct ClaudeOAuthConfig: Hashable, Sendable {
     var usageURL: URL
     var refreshURL: URL
     var clientID: String
-    var oauthFileSuffix: String
 }
 
 struct ClaudeAuthStore: Sendable {
@@ -153,12 +152,6 @@ struct ClaudeAuthStore: Sendable {
             )]
         }
         return orderedStoredCandidates()
-    }
-
-    /// The first (preferred) credential candidate — the keychain when present, else the file. Kept for
-    /// callers that only need a single source.
-    func loadCredentials() -> ClaudeCredentialState? {
-        loadCredentialCandidates().first
     }
 
     /// Data folders the Claude desktop app keeps under `~/Library/Application Support` — the standalone
@@ -227,10 +220,6 @@ struct ClaudeAuthStore: Sendable {
         return scopes.contains(Self.usageScope) ? .available : .missingProfileScope
     }
 
-    func canFetchLiveUsage(_ state: ClaudeCredentialState) -> Bool {
-        liveUsageAvailability(state) == .available
-    }
-
     func claudeHomeOverride() -> String? {
         envText("CLAUDE_CONFIG_DIR")
     }
@@ -294,8 +283,7 @@ struct ClaudeAuthStore: Sendable {
         return ClaudeOAuthConfig(
             usageURL: usageURL,
             refreshURL: refreshURL,
-            clientID: endpoints.clientID,
-            oauthFileSuffix: endpoints.suffix
+            clientID: endpoints.clientID
         )
     }
 

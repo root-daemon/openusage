@@ -71,7 +71,7 @@ enum CopilotUsageMapper {
         // dashboard still identifies the plan, instead of a loud error that drops it. A genuinely empty
         // or garbled payload (no token-based-billing marker) is a real problem and fails loudly.
         guard !lines.isEmpty else {
-            if readBool(body["token_based_billing"]) == true {
+            if ProviderParse.bool(body["token_based_billing"]) == true {
                 return CopilotMappedUsage(plan: plan, lines: [], isOrgManagedSeat: true)
             }
             throw CopilotUsageError.quotaUnavailable
@@ -93,7 +93,7 @@ enum CopilotUsageMapper {
         let remaining = ProviderParse.number(snapshot["remaining"])
 
         // Unlimited: the explicit flag, or GitHub's `-1` sentinel on entitlement/remaining. Suppress.
-        if readBool(snapshot["unlimited"]) == true || entitlement == -1 || remaining == -1 {
+        if ProviderParse.bool(snapshot["unlimited"]) == true || entitlement == -1 || remaining == -1 {
             return nil
         }
         // Zero entitlement = no real allotment (token-based-billing placeholder, or Credits on free). Drop it.
@@ -124,7 +124,7 @@ enum CopilotUsageMapper {
     /// ("No data"). No spending cap is exposed on this endpoint, so this is an unbounded count, not a meter.
     private static func overageLine(_ raw: Any?) -> MetricLine? {
         guard let snapshot = raw as? [String: Any],
-              readBool(snapshot["overage_permitted"]) == true
+              ProviderParse.bool(snapshot["overage_permitted"]) == true
         else {
             return nil
         }
@@ -165,40 +165,26 @@ enum CopilotUsageMapper {
     }
 
     /// Parse a reset timestamp. Paid tier sends an ISO-8601 datetime (`quota_reset_date`, sometimes with
-    /// fractional seconds); free tier sends a bare `yyyy-MM-dd` date (`limited_user_reset_date`).
+    /// fractional seconds), handled by the shared `OpenUsageISO8601` normalizer; free tier sends a bare
+    /// `yyyy-MM-dd` date (`limited_user_reset_date`), the only Copilot-specific fallback kept here.
     private static func parseResetDate(_ value: Any?) -> Date? {
         guard let raw = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return nil
         }
-
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: raw) { return date }
-
-        let internet = ISO8601DateFormatter()
-        internet.formatOptions = [.withInternetDateTime]
-        if let date = internet.date(from: raw) { return date }
-
-        let dayOnly = DateFormatter()
-        dayOnly.calendar = Calendar(identifier: .gregorian)
-        dayOnly.locale = Locale(identifier: "en_US_POSIX")
-        dayOnly.timeZone = TimeZone(secondsFromGMT: 0)
-        dayOnly.dateFormat = "yyyy-MM-dd"
-        return dayOnly.date(from: raw)
+        if let date = OpenUsageISO8601.date(from: raw) { return date }
+        return dayOnlyFormatter.date(from: raw)
     }
 
-    private static func readBool(_ value: Any?) -> Bool? {
-        if let bool = value as? Bool { return bool }
-        if let number = value as? NSNumber { return number.boolValue }
-        if let string = value as? String {
-            switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "true", "1": return true
-            case "false", "0": return false
-            default: return nil
-            }
-        }
-        return nil
-    }
+    /// `nonisolated(unsafe)` is sound: `DateFormatter` is documented thread-safe on macOS 10.9+, and the
+    /// formatter is never mutated after creation (same pattern as `CursorUsageCSV`/`OpenUsageISO8601`).
+    private nonisolated(unsafe) static let dayOnlyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 }
 
 enum CopilotUsageError: Error, LocalizedError, Equatable {

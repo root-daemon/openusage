@@ -123,8 +123,7 @@ enum SpendTileMapper {
     }
 
     private static func dayKey(from date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+        DailyUsageAccumulator.dayKey(from: date)
     }
 
     private static func dayKey(fromUsageDate rawDate: String) -> String? {

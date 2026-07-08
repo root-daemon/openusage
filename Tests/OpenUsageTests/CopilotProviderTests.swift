@@ -15,7 +15,6 @@ final class CopilotAuthStoreTests: XCTestCase {
         let token = store.loadToken()
 
         XCTAssertEqual(token?.value, "gho_editor")
-        XCTAssertEqual(token?.source, .editorApp)
     }
 
     func testReadsGhHostsOAuthToken() {
@@ -34,7 +33,6 @@ final class CopilotAuthStoreTests: XCTestCase {
         let token = store.loadToken()
 
         XCTAssertEqual(token?.value, "gho_ghconfig")
-        XCTAssertEqual(token?.source, .ghConfig)
     }
 
     func testDecodesGoKeyringWrappedGhKeychainToken() {
@@ -44,7 +42,6 @@ final class CopilotAuthStoreTests: XCTestCase {
         let token = store.loadToken()
 
         XCTAssertEqual(token?.value, "gho_keychain")
-        XCTAssertEqual(token?.source, .ghKeychain)
     }
 
     func testEditorConfigWinsOverKeychain() {
@@ -55,7 +52,8 @@ final class CopilotAuthStoreTests: XCTestCase {
             keychain: FakeKeychain("go-keyring-base64:" + Data("gho_keychain".utf8).base64EncodedString())
         )
 
-        XCTAssertEqual(store.loadToken()?.source, .editorApp)
+        // Editor config wins over the keychain: the editor token is returned, not the keychain one.
+        XCTAssertEqual(store.loadToken()?.value, "gho_editor")
     }
 
     func testReturnsNilWhenNoCredentials() {
@@ -76,7 +74,6 @@ final class CopilotAuthStoreTests: XCTestCase {
         let token = store.loadToken()
 
         XCTAssertEqual(token?.value, "gho_dotcom")
-        XCTAssertEqual(token?.source, .ghKeychain)
     }
 
     func testEditorConfigPicksGithubDotComAmongHosts() {

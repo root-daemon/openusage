@@ -241,7 +241,6 @@ final class CursorSpendRangeTests: XCTestCase {
         CursorUsageCSVRow(
             date: date,
             model: model,
-            maxMode: false,
             tokens: TokenBreakdown(input: tokens),
             imputedCostDollars: cost
         )

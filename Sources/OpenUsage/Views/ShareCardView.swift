@@ -26,15 +26,10 @@ struct ShareCardView: View {
     static let width: CGFloat = 360
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        ShareCardChrome(appearance: appearance) {
             headerRow
             metricsCard
-            footer
         }
-        .padding(16)
-        .frame(width: Self.width, alignment: .topLeading)
-        .background(Theme.traySurface)
-        .environment(\.colorScheme, appearance)
     }
 
     // MARK: - Header
@@ -88,35 +83,19 @@ struct ShareCardView: View {
         }
     }
 
-    /// Indices of text-only rows that sit directly under another text-only row — the neighbor-aware
-    /// condensing rule the live dashboard applies, so a run of one-liners (Today / Yesterday /
-    /// Last 30 Days) pulls into one cluster in the export the same way it does in the popover. The
-    /// expand caret is a hard boundary: condensing runs within the always-shown rows and within the
-    /// expanded rows separately, never across, so the export's spacing matches the popover.
+    /// Flat indices of text-only rows that condense under another text-only row — the neighbor-aware rule
+    /// the live dashboard applies (shared via `WidgetData.condensedTextRowOffsets`), so a run of one-liners
+    /// (Today / Yesterday / Last 30 Days) clusters in the export the same way it does in the popover. The
+    /// expand caret is a hard boundary: each segment (always-shown, then expanded) is scanned separately,
+    /// never across, and its segment-local offsets are mapped back to flat `rows` indices.
     static func condensedTextRowIndices(_ rows: [WidgetData], boundary: Int? = nil) -> Set<Int> {
+        let edges = boundary.map { [0, $0, rows.count] } ?? [0, rows.count]
         var indices = Set<Int>()
-        let end = rows.count
-        let edges = boundary.map { [0, $0, end] } ?? [0, end]
         for (lower, upper) in zip(edges, edges.dropFirst()) {
-            for i in (lower + 1)..<upper where !rows[i - 1].isBounded && !rows[i].isBounded {
-                indices.insert(i)
-            }
+            let offsets = WidgetData.condensedTextRowOffsets(in: Array(rows[lower..<upper]))
+            indices.formUnion(offsets.map { lower + $0 })
         }
         return indices
     }
 
-    // MARK: - Footer
-
-    /// The brand mark + tagline, centered at the bottom of the card. Quiet (secondary) so it reads as
-    /// a watermark, not a headline.
-    private var footer: some View {
-        HStack(spacing: 6) {
-            ProviderIcon(source: .providerMark("openusage"), inset: 0)
-                .frame(width: 14, height: 14)
-            Text("Monitor Your AI Subscriptions with OpenUsage")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
 }

@@ -31,7 +31,7 @@ struct CustomizeProviderDetailView: View {
                 metricSections(group)
                     .simultaneousGesture(metricDragGesture())
                 if let keyProvider = container.apiKeyProviders.first(where: { $0.provider.id == providerID }) {
-                    APIKeysSection(providers: [keyProvider])
+                    APIKeysSection(provider: keyProvider)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

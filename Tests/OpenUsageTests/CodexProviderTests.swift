@@ -85,10 +85,9 @@ final class CodexAuthStoreTests: XCTestCase {
             keychain: FakeKeychain()
         )
 
-        let (candidates, missing) = store.loadAuthCandidates()
+        let candidates = store.loadAuthCandidates()
 
         XCTAssertEqual(candidates.count, 1)
-        XCTAssertTrue(missing.isEmpty)
         XCTAssertEqual(candidates.first?.auth.tokens?.accessToken, "token")
     }
 }

@@ -10,11 +10,10 @@ import Foundation
 /// shapes are stable in practice. The mapper is pure (no I/O) so it tests cleanly against sample
 /// payloads, exactly like the legacy plugin's fixture-based tests.
 enum ZAIUsageMapper {
-    /// One 5-hour session token window, in milliseconds (Z.ai reports `unit: 3, number: 5`).
-    static let sessionPeriodMs = 5 * 60 * 60 * 1000
-    /// One 7-day weekly window, in milliseconds (Z.ai reports `unit: 6, number: 1`).
-    static let weeklyPeriodMs = 7 * 24 * 60 * 60 * 1000
-    /// One monthly web-search cycle, in milliseconds (Z.ai reports `unit: 5, number: 1`).
+    /// One monthly web-search cycle, in milliseconds (Z.ai reports `unit: 5, number: 1`). The session
+    /// and weekly meters instead carry the *payload's* actual window (see `classifyTokenWindow`), so
+    /// their cadence tracks the plan rather than a hardcoded assumption; this monthly constant is only a
+    /// fallback for the web-search line and the widget-descriptor default.
     static let monthlyPeriodMs = 30 * 24 * 60 * 60 * 1000
 
     /// `(plan, lines)` from the quota + subscription payloads. `subscription` may be `nil` (the
@@ -55,10 +54,10 @@ enum ZAIUsageMapper {
         let tokenLimits = limits.filter { ($0["type"] as? String) == "TOKENS_LIMIT" || ($0["name"] as? String) == "TOKENS_LIMIT" }
         for entry in tokenLimits {
             switch classifyTokenWindow(entry) {
-            case .session:
-                lines.append(percentLine(entry, label: "Session", periodMs: sessionPeriodMs))
-            case .weekly:
-                lines.append(percentLine(entry, label: "Weekly", periodMs: weeklyPeriodMs))
+            case .session(let periodMs):
+                lines.append(percentLine(entry, label: "Session", periodMs: periodMs))
+            case .weekly(let periodMs):
+                lines.append(percentLine(entry, label: "Weekly", periodMs: periodMs))
             case .unknown:
                 continue
             }
@@ -90,17 +89,19 @@ enum ZAIUsageMapper {
     /// window is the session meter; a multi-day window is the weekly meter; anything unrecognized is
     /// skipped so a future unit value can't silently overwrite a known meter.
     private enum TokenWindow {
-        case session
-        case weekly
+        case session(periodMs: Int)
+        case weekly(periodMs: Int)
         case unknown
     }
 
     private static func classifyTokenWindow(_ entry: [String: Any]) -> TokenWindow {
         guard let periodMs = periodDurationMs(for: entry) else { return .unknown }
+        // Sub-daily → session; multi-day → weekly. The computed window rides along so the meter's
+        // cadence reflects the payload instead of a hardcoded constant.
         if periodMs < 24 * 60 * 60 * 1000 {
-            return .session
+            return .session(periodMs: periodMs)
         }
-        return .weekly
+        return .weekly(periodMs: periodMs)
     }
 
     /// Resolve a `(unit, number)` window to milliseconds. `unit` is Z.ai's internal time-unit code.

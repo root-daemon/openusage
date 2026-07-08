@@ -34,9 +34,9 @@ final class NotificationSettingsStore {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.underTenPercent = defaults.boolWithDefault(Self.underTenKey, default: false)
-        self.healthyToClose = defaults.boolWithDefault(Self.healthyToCloseKey, default: false)
-        self.closeToRunningOut = defaults.boolWithDefault(Self.closeToRunningOutKey, default: false)
+        self.underTenPercent = defaults.bool(forKey: Self.underTenKey, default: false)
+        self.healthyToClose = defaults.bool(forKey: Self.healthyToCloseKey, default: false)
+        self.closeToRunningOut = defaults.bool(forKey: Self.closeToRunningOutKey, default: false)
     }
 
     /// The per-milestone toggles as the pure logic consumes them.
@@ -52,13 +52,4 @@ final class NotificationSettingsStore {
     /// first trigger is turned on) and whether the Settings permission notice should show. Turning all
     /// three off silences everything.
     var anyEnabled: Bool { underTenPercent || healthyToClose || closeToRunningOut }
-}
-
-private extension UserDefaults {
-    /// `bool(forKey:)` returns `false` for an unset key, which can't express an opt-out default. This
-    /// reads the stored bool when present and falls back to `default` only when the key is genuinely
-    /// unset — so a default-on toggle starts on yet still honors a user's explicit off.
-    func boolWithDefault(_ key: String, default fallback: Bool) -> Bool {
-        object(forKey: key) as? Bool ?? fallback
-    }
 }

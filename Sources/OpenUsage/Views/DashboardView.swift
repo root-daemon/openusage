@@ -31,12 +31,11 @@ struct DashboardView: View {
     /// Whether `animatedHeight` has been seeded for this open. Until then the first measurement (or a
     /// reopen) establishes it without animation; afterwards, changes spring.
     @State private var didEstablishHeight = false
-    /// Per-screen intrinsic heights, summed into `measuredIdeal`. Written only from geometry/preference
-    /// actions (which run after `body`), so they never trip "Modifying state during view update".
-    @State private var measuredScrollContent: [PopoverScreen: CGFloat] = [:]
-    @State private var measuredFooter: [PopoverScreen: CGFloat] = [:]
-    /// The window height each screen wants — top bar + footer + scroll content. The morph target.
-    @State private var measuredIdeal: [PopoverScreen: CGFloat] = [:]
+    /// Popover auto-fit height computation: per-screen measured pieces summed into each screen's clamped
+    /// morph target (`heightCoordinator.measuredIdeal` / `.target(for:)`). Written from the geometry
+    /// actions below. The animation itself — `animatedHeight`, the slide, the `withAnimation` spring —
+    /// stays in this view; the coordinator holds only the deterministic measurement.
+    @State private var heightCoordinator = PanelHeightCoordinator(topBarHeight: Self.topBarHeight)
     /// Horizontal screen-switch slide: 0 shows the outgoing screen, 1 the incoming one. Drives the
     /// page offset so the screens slide between modes on one spring.
     @State private var slideProgress: CGFloat = 1
@@ -52,6 +51,7 @@ struct DashboardView: View {
     @State private var isPresentingResetAllConfirm = false
     /// Row rhythm tracks the global density setting live.
     @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
+    @AppStorage(TotalSpendSetting.key) private var showTotalSpend = true
 
     private static let outerPadding: CGFloat = 14
     /// Breathing room between the bottom of the scrolling content and the pinned footer. Kept small
@@ -151,7 +151,7 @@ struct DashboardView: View {
                         // Reopen: the SwiftUI tree survives a close, so re-seed the height for whatever
                         // screen we're opening on. Un-animated, and ≈ the controller's opening guess, so
                         // there's no visible jump. If not yet measured, the measurement onChange seeds it.
-                        if let target = targetHeight() {
+                        if let target = heightCoordinator.target(for: layout.screen) {
                             didEstablishHeight = true
                             animatedHeight = target
                         }
@@ -190,17 +190,17 @@ struct DashboardView: View {
                     // destination is usually mounted+measured by now (it mounted on the slideProgress=0
                     // render), so we morph to its ideal. If it ISN'T measured yet and the height was
                     // never established (animatedHeight still the 0 sentinel — e.g. opening Settings
-                    // straight from the status-item menu), we must NOT morph to clampedTarget(0), which
+                    // straight from the status-item menu), we must NOT morph to a clamped zero, which
                     // floors to minPanelHeight and wrongly shrinks the panel: leave the height alone and
                     // let the completion / measurement establish it once a real ideal lands.
-                    let coTarget: CGFloat? = measuredIdeal[destination].map { clampedTarget($0) }
+                    let coTarget: CGFloat? = heightCoordinator.target(for: destination)
                         ?? (animatedHeight > 0 ? animatedHeight : nil)
                     if coTarget != nil { didEstablishHeight = true }
                     withAnimation(Motion.spring, completionCriteria: .logicallyComplete) {
                         slideProgress = 1
                         if let coTarget { animatedHeight = coTarget }
                     } completion: {
-                        guard let target = targetHeight() else { return }
+                        guard let target = heightCoordinator.target(for: layout.screen) else { return }
                         if !didEstablishHeight {
                             didEstablishHeight = true
                             animatedHeight = target            // un-animated establish — never grow from 0
@@ -214,8 +214,8 @@ struct DashboardView: View {
             // loads rows): re-target the height on the same spring. Establishment is allowed even mid-
             // slide (a measurement that lands during a switch must seed the height — there's nothing to
             // fight yet); the animated *re-target* defers to the switch path while a slide is in flight.
-            .onChange(of: measuredIdeal[layout.screen]) { _, _ in
-                guard let target = targetHeight() else { return }
+            .onChange(of: heightCoordinator.measuredIdeal[layout.screen]) { _, _ in
+                guard let target = heightCoordinator.target(for: layout.screen) else { return }
                 if !didEstablishHeight {
                     didEstablishHeight = true
                     animatedHeight = target
@@ -254,8 +254,7 @@ struct DashboardView: View {
         // tooltip the cursor was resting on, since the closed popover fires no hover-exit. The Usage
         // Trend hover popover rides the same backstop.
         HoverTooltips.dismissAll()
-        TrendHoverState.dismissAll()
-        ModelHoverState.dismissAll()
+        HoverPopoverState.dismissAll()
         if layout.screen != .dashboard { layout.screen = .dashboard }
         reorderLift = nil
         layout.cancelDrag()
@@ -344,36 +343,12 @@ struct DashboardView: View {
             // which we sum with the chrome into this screen's ideal window height. Keyed by the per-page
             // `screen`, so during a slide each mounted page measures its own content.
             .onPreferenceChange(ScrollContentHeightKey.self) { height in
-                measuredScrollContent[screen] = height
-                recomposeIdeal(for: screen)
+                heightCoordinator.setScrollContent(height, for: screen)
             }
             .softTopScrollEdge()
             .softBottomScrollEdge()
             .pinnedTopBar(spacing: 0) { fixedTopBar }
             .pinnedFooter(spacing: 0) { footerBar(for: layout.screen) }
-    }
-
-    // MARK: - Auto-fit height
-
-    /// Sum a screen's measured parts into its ideal window height. Top bar is the fixed `topBarHeight`
-    /// on Customize/Settings and 0 on the dashboard (it pins itself to that exact height); the footer is
-    /// measured because it varies (the Customize pin summary, the denied-pin notice line).
-    private func recomposeIdeal(for screen: PopoverScreen) {
-        guard let content = measuredScrollContent[screen], content > 0 else { return }
-        let topBar: CGFloat = screen == .dashboard ? 0 : Self.topBarHeight
-        let footer = measuredFooter[screen] ?? 0
-        measuredIdeal[screen] = topBar + footer + content
-    }
-
-    /// This screen's ideal height clamped to where the panel can actually sit (the controller owns the
-    /// [min, screen-max] clamp); `nil` until the screen has been measured.
-    private func targetHeight() -> CGFloat? {
-        guard let ideal = measuredIdeal[layout.screen] else { return nil }
-        return clampedTarget(ideal)
-    }
-
-    private func clampedTarget(_ ideal: CGFloat) -> CGFloat {
-        MenuBarPopover.clampHeight?(ideal) ?? ideal
     }
 
     /// The scrolling content for a screen, without chrome — this is the part that slides during a
@@ -484,6 +459,15 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var widgetContent: some View {
+        // The cross-provider Total Spend ring tops the provider sections whenever the user hasn't
+        // hidden it (Settings → General) and any enabled provider is capable of tracking spend.
+        // The gate is capability, not data — and independent of the provider sections below, so a
+        // fresh morning, a lone provider, or a dashboard with every metric hidden still shows the
+        // card (with its ring or "No spend data" state) rather than silently dropping it.
+        if showTotalSpend, layout.hasSpendCapableProvider {
+            TotalSpendCard()
+                .padding(.bottom, density.sectionSpacing)
+        }
         if layout.displayGroups.isEmpty {
             Text("Turn on Customize to choose what to show.")
                 .font(.subheadline)
@@ -625,12 +609,11 @@ struct DashboardView: View {
         // (not the desktop), so it stays consistent regardless of what's behind the window. Renders on
         // macOS 26+, including the macOS 27 (Golden Gate) beta; macOS 15 falls back to a frosted material.
         .barGlass()
-        // The footer's height feeds the auto-fit sum (`recomposeIdeal`); it varies — the Customize
-        // summary line vs the dashboard identity row vs the denied-pin notice — so measure it rather
-        // than assume a constant. Keyed by the destination `screen` (footer is keyed off `layout.screen`).
+        // The footer's height feeds the auto-fit sum (see `PanelHeightCoordinator`); it varies — the
+        // Customize summary line vs the dashboard identity row vs the denied-pin notice — so measure it
+        // rather than assume a constant. Keyed by the destination `screen` (footer is keyed off `layout.screen`).
         .onGeometryChange(for: CGFloat.self) { proxy in proxy.size.height } action: { height in
-            measuredFooter[screen] = height
-            recomposeIdeal(for: screen)
+            heightCoordinator.setFooter(height, for: screen)
         }
         // A successful "Share Screenshot" springs a small "Copied ✓" pill up just above the footer —
         // a floating success toast that's more glanceable than the in-footer text line, and separate
@@ -653,20 +636,12 @@ struct DashboardView: View {
     /// screenshot is copied — a small frosted capsule that reads as a transient success toast. `.id` on
     /// the trigger so a repeat copy of the same provider re-pops instead of sitting motionless.
     private var shareCopiedPill: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 11, weight: .semibold))
-            Text("Copied to clipboard")
-                .font(.system(size: 12, weight: .semibold))
-        }
-        .foregroundStyle(Theme.positive)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-        .id(layout.shareConfirmationTrigger)
-        .transition(.scale(scale: 0.85).combined(with: .opacity))
+        TransientPill(
+            systemImage: "checkmark.circle.fill",
+            text: "Copied to clipboard",
+            tint: Theme.positive,
+            trigger: layout.shareConfirmationTrigger
+        )
     }
 
     /// Count of enabled ("active") metrics across providers — the "N active" half of the Customize footer

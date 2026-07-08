@@ -16,7 +16,6 @@ struct CustomizeView: View {
     @Binding var reorderLift: ReorderLift?
 
     @State private var rowFrames: [String: CGRect] = [:]
-    @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
 
     var body: some View {
         PopoverScrollView {
@@ -41,19 +40,13 @@ struct CustomizeView: View {
 
     private var customizationNoticePill: some View {
         let isNotice = layout.customizationNoticeTone == .notice
-        return HStack(spacing: 5) {
-            Image(systemName: isNotice ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .font(.system(size: 11, weight: .semibold))
-            Text(layout.customizationNotice ?? "")
-                .font(.system(size: 12, weight: .semibold))
-        }
-        .foregroundStyle(isNotice ? Theme.notice : Theme.positive)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
-        .id(layout.customizationNoticeTrigger)
-        .transition(.scale(scale: 0.85).combined(with: .opacity))
+        return TransientPill(
+            systemImage: isNotice ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+            text: layout.customizationNotice ?? "",
+            tint: isNotice ? Theme.notice : Theme.positive,
+            trigger: layout.customizationNoticeTrigger,
+            showsShadow: false
+        )
     }
 
     @ViewBuilder

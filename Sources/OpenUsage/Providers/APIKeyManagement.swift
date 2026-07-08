@@ -18,9 +18,6 @@ enum APIKeyStatus: Sendable, Equatable {
     case fromEnvironment
     case saved
     case overrideActive
-
-    /// True when a key is usable right now (anything but `notSet`).
-    var isPresent: Bool { self != .notSet }
 }
 
 /// A `ProviderRuntime` that needs a user-supplied API key (OpenRouter today; future user-key
@@ -45,13 +42,4 @@ protocol APIKeyManaging: ProviderRuntime {
     var apiKeyStorageDescription: String { get }
     /// The env-var name checked, shown in the "Using OPENROUTER_API_KEY from your environment" line.
     var apiKeyEnvironmentName: String { get }
-}
-
-/// A masked preview of a key for read-only display: eight bullets then the last four characters.
-/// Returns `nil` for short keys, so the caller can fall back to a fully-masked placeholder rather
-/// than revealing too large a share of a short secret.
-func maskedKeyPreview(_ key: String) -> String? {
-    let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard trimmed.count > 8 else { return nil }
-    return String(repeating: "•", count: 8) + " " + String(trimmed.suffix(4))
 }

@@ -26,7 +26,7 @@ struct WidgetRowView: View {
     var condensedTop: Bool = false
 
     @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
-    @State private var modelHover = ModelHoverState()
+    @State private var modelHover = HoverPopoverState()
     /// Party easter egg: fill meter bars with the party gradient instead of the severity color. Off by
     /// default everywhere else.
     @Environment(\.popoverPartyMode) private var partyMode
@@ -260,7 +260,30 @@ struct WidgetRowView: View {
     private var unboundedRow: some View {
         unboundedRowContent
             .onChange(of: data.modelBreakdown) { _, _ in modelHover.dismiss() }
+            // A refresh can replace the reset credits (count and expiries) while the popover is open;
+            // drop it so it never lingers over a stale timeline.
+            .onChange(of: data.expiriesAt) { _, _ in modelHover.dismiss() }
             .onDisappear { modelHover.dismiss() }
+    }
+
+    /// The value column reveals the model breakdown on hover, so it lights up under the pointer the way
+    /// a Finder / System Settings list row does — the native cue that "this is a target." Lit the moment
+    /// the pointer arrives (`overInline`, before the reveal dwell) and held lit while the popover is open,
+    /// so the value reads as the popover's source. Both flags live on `modelHover`, so the panel's close
+    /// path (`dismissAll`) clears the highlight even though this view's state survives `orderOut`. Only
+    /// rows that actually have a breakdown light up.
+    private var showValueHighlight: Bool {
+        hasHoverPopover && (modelHover.overInline || modelHover.isPresented)
+    }
+
+    /// Whether the value column reveals a hover popover: the model breakdown on spend rows, or the
+    /// resets timeline on the Codex rate-limit-resets row. One `modelHover` coordinator drives both — a
+    /// row is only ever one kind — so lighting the value and anchoring the popover share the spend
+    /// row's machinery. The resets row qualifies even at "0 available" (empty `expiriesAt`), so its
+    /// empty-state popover stays reachable — but only with real data: a "No data" tile must not open a
+    /// popover that reads as "zero credits" (`hasModelBreakdown` already carries its own `hasData`).
+    private var hasHoverPopover: Bool {
+        data.hasModelBreakdown || (data.showsResetExpiries && data.hasData)
     }
 
     private var unboundedRowContent: some View {
@@ -282,8 +305,9 @@ struct WidgetRowView: View {
                         // zero row; nil (no tooltip) on a small, already-full, non-zero row. Suppressed
                         // when the model-breakdown popover is wired up — a text bubble and a popover
                         // fighting over the same hover reads as two competing surfaces, and the panel's
-                        // per-model tooltips carry the exact figures instead.
-                        .hoverTooltip(data.hasModelBreakdown ? nil : data.unboundedValueTooltip)
+                        // per-model tooltips carry the exact figures instead. The resets row likewise
+                        // drops its tooltip — the timeline popover replaces it.
+                        .hoverTooltip(hasHoverPopover ? nil : data.unboundedValueTooltip)
                 }
                 if let subtitle = data.unboundedSubtitle {
                     // Secondary, not tertiary: the subtitle is informational ("on-device estimate"),
@@ -295,13 +319,26 @@ struct WidgetRowView: View {
                 }
             }
             .multilineTextAlignment(.trailing)
+            // A quaternary chip behind the value — the app's subtle-fill token, in the shared 6pt
+            // continuous corner — signals the value is interactive before the breakdown even opens.
+            // Negative-inset so it hugs the figure without changing the row's height (the text-row
+            // rhythm that clusters Today / Yesterday / Last 30 Days must not shift), and a quick
+            // opacity fade in/out matches macOS hover states.
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(.quaternary)
+                    .padding(.horizontal, -7)
+                    .padding(.vertical, -4)
+                    .opacity(showValueHighlight ? 1 : 0)
+            }
+            .animation(.easeOut(duration: 0.12), value: showValueHighlight)
             // Both the hover trigger and the popover anchor live on the value column, not the whole
             // row: hovering the label (or empty gap) shouldn't reveal the breakdown — only the figure
             // it explains should — and the arrow then centers on that figure, matching the trend
             // popover's anchoring off the sparkline strip.
             .contentShape(Rectangle())
             .onContinuousHover { phase in
-                guard data.hasModelBreakdown else {
+                guard hasHoverPopover else {
                     modelHover.dismiss()
                     return
                 }
@@ -313,7 +350,7 @@ struct WidgetRowView: View {
             }
             .popover(
                 isPresented: Binding(
-                    get: { data.hasModelBreakdown && modelHover.isPresented },
+                    get: { hasHoverPopover && modelHover.isPresented },
                     // A click-outside dismiss removes the detail view without an `.ended` hover event,
                     // so a plain assignment would strand `overDetail == true` and block future hides.
                     set: { if !$0 { modelHover.dismiss() } }
@@ -324,21 +361,26 @@ struct WidgetRowView: View {
                     ModelUsageDetail(title: data.title, breakdown: breakdown) { inside in
                         modelHover.detailHover(inside)
                     }
+                } else if data.showsResetExpiries {
+                    RateLimitResetsDetail(title: data.title, count: data.resetCreditCount,
+                                          expiries: data.expiriesAt) { inside in
+                        modelHover.detailHover(inside)
+                    }
                 }
             }
         }
     }
 
     /// Small blue/yellow/red status dot shown just before the value when the row carries reset-credit
-    /// expiries. Carries the same expiry tooltip as the value, so hovering it reveals which credits are
-    /// expiring and when. Renders nothing otherwise.
+    /// expiries — colored by the soonest expiry. The per-credit detail (which credits, expiring when)
+    /// lives in the resets popover the value column now reveals on hover, so the dot carries no tooltip
+    /// of its own. Renders nothing when no credit is available (an empty `expiriesAt`).
     @ViewBuilder
     private var expiryStatusDot: some View {
         if let severity = data.expirySeverity() {
             Circle()
                 .fill(severityColor(severity))
                 .frame(width: 6, height: 6)
-                .hoverTooltip(data.unboundedValueTooltip)
                 .accessibilityLabel(expiryStatusAccessibilityLabel(severity))
         }
     }

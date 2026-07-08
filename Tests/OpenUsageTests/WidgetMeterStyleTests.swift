@@ -20,7 +20,6 @@ final class WidgetMeterStyleTests: XCTestCase {
         XCTAssertEqual(remaining.boundedHeadline, "20% left")
         XCTAssertNil(remaining.boundedSubtitle)
         XCTAssertEqual(remaining.fraction, 0.20, accuracy: 0.0001)
-        XCTAssertEqual(store.menuBarPrimaryText, "20%")
 
         store.meterStyle = .used
         let used = store.data(for: descriptor)
@@ -28,7 +27,6 @@ final class WidgetMeterStyleTests: XCTestCase {
         XCTAssertEqual(used.boundedHeadline, "80% used")
         XCTAssertNil(used.boundedSubtitle)
         XCTAssertEqual(used.fraction, 0.80, accuracy: 0.0001)
-        XCTAssertEqual(store.menuBarPrimaryText, "80%")
     }
 
     func testMeterStyleFlipsBoundedDollarsTile() async {

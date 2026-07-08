@@ -31,6 +31,23 @@ enum ProviderParse {
         return nil
     }
 
+    /// Permissive boolean read for `JSONSerialization` output: accepts real `Bool`s, numeric `NSNumber`s
+    /// (nonzero → true, via `boolValue`), and the strings "true"/"1"/"false"/"0" (case-insensitive).
+    /// Returns `nil` for anything else, so an absent or unrecognized field stays distinguishable from an
+    /// explicit false. `Bool` is tried before `NSNumber` so a JSON `0`/`1` bridges the same way either path.
+    static func bool(_ value: Any?) -> Bool? {
+        if let bool = value as? Bool { return bool }
+        if let number = value as? NSNumber { return number.boolValue }
+        if let string = value as? String {
+            switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "1": return true
+            case "false", "0": return false
+            default: return nil
+            }
+        }
+        return nil
+    }
+
     /// Clamp a percentage into 0...100, treating non-finite input as 0.
     static func clampPercent(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
@@ -90,6 +107,24 @@ enum ProviderParse {
             return nil
         }
         return json
+    }
+
+    /// Unwrap a `go-keyring-base64:`-prefixed value — how Go tools (`gh`, `agy`) store secrets in the
+    /// macOS Keychain — returning the decoded string. A value without the prefix is returned trimmed
+    /// as-is; an empty result is `nil`. Shared by every provider that reads a go-keyring-stored token.
+    static func unwrapGoKeyring(_ raw: String) -> String? {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "go-keyring-base64:"
+        if text.hasPrefix(prefix) {
+            let encoded = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let data = Data(base64Encoded: encoded),
+                  let decoded = String(data: data, encoding: .utf8)
+            else {
+                return nil
+            }
+            text = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return text.nilIfEmpty
     }
 }
 

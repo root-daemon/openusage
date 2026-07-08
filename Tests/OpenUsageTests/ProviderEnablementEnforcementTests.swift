@@ -38,49 +38,8 @@ final class ProviderEnablementEnforcementTests: XCTestCase {
         XCTAssertNil(store.snapshots["codex"])
     }
 
-    // MARK: - Menu-bar value
-
-    func testMenuBarPrimaryFollowsLayoutOrderAndFallsBackWhenAllDisabled() async {
-        let enablement = ProviderEnablementStore(defaults: makeDefaults("menubar-enablement"))
-
-        let codex = makeRuntime("codex", used: 80)
-        let claude = makeRuntime("claude", used: 30)
-        // Registry order is claude-first; layout order is codex-first. Tray ownership must follow the
-        // layout, proving it is order-driven rather than registry/alphabetical.
-        let registry = WidgetRegistry(
-            providers: [claude.provider, codex.provider],
-            descriptors: [claude.descriptor, codex.descriptor]
-        )
-        let layout = LayoutStore(
-            registry: registry,
-            defaults: makeDefaults("menubar-layout"),
-            storageKey: "layout",
-            isProviderEnabled: { enablement.isEnabled($0) }
-        )
-        layout.placed = [
-            PlacedWidget(descriptorID: codex.descriptor.id),
-            PlacedWidget(descriptorID: claude.descriptor.id)
-        ]
-        let suite = makeDefaults("menubar-store")
-        let store = WidgetDataStore(
-            registry: registry,
-            providers: [codex.runtime, claude.runtime],
-            cache: ProviderSnapshotCache(userDefaults: suite, storageKey: "snapshots", ttl: 600, now: { Date() }),
-            defaults: suite,
-            isProviderEnabled: { enablement.isEnabled($0) },
-            orderedDescriptors: { layout.visiblePlaced.compactMap { layout.descriptor(for: $0) } }
-        )
-        store.meterStyle = .used // headline = used value, so assertions read directly
-        await store.refreshAll()
-
-        XCTAssertEqual(store.menuBarPrimaryText, "80%") // codex is first in layout order
-
-        enablement.setEnabled(false, for: "codex")
-        XCTAssertEqual(store.menuBarPrimaryText, "30%") // codex hidden -> claude is first visible
-
-        enablement.setEnabled(false, for: "claude")
-        XCTAssertEqual(store.menuBarPrimaryText, WidgetData.noDataHeadline) // nothing visible -> no-data marker
-    }
+    // Tray ownership by layout order + disabled-provider exclusion is exercised on the real tray path
+    // (LayoutStore.pinnedGroups + MenuBarContentBuilder) in MenuBarPinTests / MenuBarContentTests.
 
     // MARK: - Layout
 
