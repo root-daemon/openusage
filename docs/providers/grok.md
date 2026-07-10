@@ -9,7 +9,8 @@ Tracks Grok Build credit usage using the login from the Grok CLI.
 | Weekly | The shared weekly pool's usage percent (the limit Grok's unified billing enforces), with the weekly reset countdown |
 | Extra Usage | Pay-as-you-go cap as a status (e.g. `2500 cap` or `Disabled`) |
 | Today / Yesterday / Last 30 Days | Local cost and tokens estimated from the Grok CLI log |
-| Plan | Your subscription tier (optional widget) |
+
+When Grok reports your subscription tier, OpenUsage shows it beside the provider name.
 
 The weekly shared pool is the limit Grok enforces for unified-billing accounts (the old monthly credits meter is legacy and no longer shown). Accounts that haven't been migrated to unified billing have no weekly pool, so the Weekly tile reads "No data" there.
 

@@ -9,7 +9,8 @@ Tracks your Devin quota using the login from the Devin CLI or the Devin app.
 | Weekly | Weekly quota used (falls back to the daily figure when Devin reports no weekly quota) |
 | Daily | Daily quota used (hidden when Devin hides the daily quota) |
 | Extra Balance | Overage/extra-usage balance in dollars |
-| Plan | Your plan name (optional widget) |
+
+When Devin reports your plan name, OpenUsage shows it beside the provider name.
 
 ## Where credentials come from
 

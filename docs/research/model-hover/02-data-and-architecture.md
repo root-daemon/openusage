@@ -192,7 +192,6 @@ Snapshot to view:
   - global meter style
   - reset display mode
   - `alwaysShowPacing`
-  - `widgetID = descriptor.id`
 - `WidgetGroupedListView` resolves each row and renders `WidgetRowView(data: ...)`.
 
 Current row structure:
@@ -268,7 +267,7 @@ Pricing refresh cadence:
 Provider scanner computation:
 
 - Claude and Codex scanners are actors with per-file parse caches keyed by path, size, and mtime. Every refresh reuses unchanged parsed entries/events and reruns dedup + aggregation.
-- Cursor fetches the CSV on each provider refresh when spend tracking is enabled and parses rows in memory.
+- Cursor fetches the CSV on each provider refresh and parses rows in memory.
 - Grok reads and parses the single unified log on each refresh; there is no per-file parse cache today.
 
 Would a model breakdown require extra computation?
@@ -376,7 +375,7 @@ Popover and hover behavior:
 
 Performance:
 
-- Cursor CSV parse cost already exists on every Cursor refresh when spend tracking is enabled. Model grouping is cheap relative to network fetch and parse.
+- Cursor CSV parse cost already exists on every Cursor refresh. Model grouping is cheap relative to network fetch and parse.
 - Claude/Codex per-file parse caches keep repeated refreshes cheap; model grouping reruns over cached entries/events each refresh, like current day aggregation.
 - Grok scans a single append-only file without a parse cache. A model panel increases only aggregation state, not file reads, but large logs could make Grok the highest-risk provider.
 

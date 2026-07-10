@@ -9,7 +9,8 @@ Tracks [Z.ai](https://z.ai) (Zhipu AI) GLM Coding Plan usage quotas for coding s
 | Session | 5-hour rolling window token usage (percentage) |
 | Weekly | 7-day rolling window token usage (percentage) |
 | Web Searches | Monthly web-search / web-reader / Zread calls (used / limit) |
-| Plan | Your plan name (optional widget) |
+
+When Z.ai reports your plan name, OpenUsage shows it beside the provider name.
 
 ## Where credentials come from
 

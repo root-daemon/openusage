@@ -12,7 +12,8 @@ Antigravity has two shared quota pools, and each pool has two windows — a roll
 | Weekly | The same Gemini pool's weekly window |
 | Claude | The shared non-Gemini pool (Claude, GPT-OSS, …), rolling 5-hour window |
 | Claude Weekly | The same non-Gemini pool's weekly window |
-| Plan | Your subscription tier, e.g. `Pro` or `Ultra` (optional widget) |
+
+When Antigravity reports your subscription tier (such as `Pro` or `Ultra`), OpenUsage shows it beside the provider name.
 
 Gemini Pro and Gemini Flash are one pool: using either model drains the same quota, so OpenUsage shows one meter per window instead of separate Pro and Flash meters. That pair is named Session and Weekly to match the other providers' rows. Every non-Gemini model shares the second pool, shown under the Claude name (like Codex's Spark pair). Quotas are reported as a fraction (full = 0% used), so there are no token or dollar spend tiles.
 

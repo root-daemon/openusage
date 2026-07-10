@@ -12,7 +12,8 @@ Tracks your Cursor plan usage using the login from the Cursor app.
 | Auto Usage | Auto-model usage percent |
 | API Usage | API usage percent |
 | Extra Usage | On-demand spend; shown as a meter only when Cursor returns a limit |
-| Plan | Your plan name (optional widget) |
+
+When Cursor reports your plan name, OpenUsage shows it beside the provider name.
 
 ## Where credentials come from
 
