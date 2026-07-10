@@ -62,11 +62,44 @@ struct ClaudeCredentialState: Hashable, Sendable {
     }
 }
 
+/// Token-bearing credential candidates in their effective probe order. Environment-only inference
+/// tokens are excluded because they never fetch live usage; every stored candidate that can affect
+/// selection remains, including an earlier source that the current refresh already tried and rejected.
+struct ClaudeCredentialGeneration: Equatable, Sendable {
+    struct Candidate: Equatable, Sendable {
+        let oauth: ClaudeOAuth
+        let source: ClaudeCredentialState.Source
+
+        init(_ state: ClaudeCredentialState) {
+            oauth = state.oauth
+            source = state.source
+        }
+    }
+
+    var candidates: [Candidate]
+
+    init(_ states: [ClaudeCredentialState]) {
+        candidates = states
+            .filter { $0.hasUsableAccessToken && !$0.inferenceOnly }
+            .map(Candidate.init)
+    }
+
+    func replacing(_ state: ClaudeCredentialState) -> Self {
+        var updated = self
+        guard let index = updated.candidates.firstIndex(where: { $0.source == state.source }) else {
+            fatalError("live usage source missing from Claude credential generation")
+        }
+        updated.candidates[index] = Candidate(state)
+        return updated
+    }
+}
+
 enum ClaudeAuthError: Error, LocalizedError, Equatable {
     case notLoggedIn
     case desktopAppOnly
     case sessionExpired
     case tokenExpired
+    case credentialsChanged
     case invalidOAuthURL(String)
 
     var errorDescription: String? {
@@ -79,6 +112,8 @@ enum ClaudeAuthError: Error, LocalizedError, Equatable {
             return "Session expired. Run `claude` to log in again."
         case .tokenExpired:
             return "Token expired. Run `claude` to log in again."
+        case .credentialsChanged:
+            return "Claude login changed during refresh. Refresh again."
         case .invalidOAuthURL(let value):
             return "Invalid Claude OAuth URL: \(value). Check CLAUDE_CODE_CUSTOM_OAUTH_URL / CLAUDE_LOCAL_OAUTH_API_BASE."
         }
@@ -94,7 +129,7 @@ enum ClaudeAuthError: Error, LocalizedError, Equatable {
         switch self {
         case .sessionExpired, .tokenExpired:
             return true
-        case .notLoggedIn, .desktopAppOnly, .invalidOAuthURL:
+        case .notLoggedIn, .desktopAppOnly, .credentialsChanged, .invalidOAuthURL:
             return false
         }
     }
@@ -189,11 +224,19 @@ struct ClaudeAuthStore: Sendable {
         return expiresAt - now().timeIntervalSince1970 * 1000 <= 5 * 60 * 1000
     }
 
-    func save(_ state: ClaudeCredentialState) throws {
+    func credentialGeneration() -> ClaudeCredentialGeneration {
+        ClaudeCredentialGeneration(loadCredentialCandidates())
+    }
+
+    /// Save an OAuth rotation only if the ordered effective candidate set is unchanged. Checking the
+    /// whole generation catches a newly added higher-priority source as well as replacement in place.
+    /// The underlying stores provide no atomic compare-and-swap, so this remains best-effort.
+    func save(_ state: ClaudeCredentialState, ifUnchanged expected: ClaudeCredentialGeneration) throws -> Bool {
+        guard credentialGeneration() == expected else { return false }
         var fullData = state.fullData ?? ClaudeCredentialsFile()
         fullData.claudeAiOauth = state.oauth
         let data = try JSONEncoder().encode(fullData)
-        guard let text = String(data: data, encoding: .utf8) else { return }
+        guard let text = String(data: data, encoding: .utf8) else { return false }
 
         switch state.source {
         case .file:
@@ -203,10 +246,11 @@ struct ClaudeAuthStore: Sendable {
         case .keychainLegacy(let service):
             try keychain.writeGenericPassword(service: service, value: text)
         case .environment:
-            return
+            return false
         }
         // NEVER log the credential blob/tokens — only that a rotation was persisted, and to where.
         AppLog.debug(LogTag.auth("claude"), "persisted rotated credentials (source=\(state.source.label))")
+        return true
     }
 
     /// Why the live-usage endpoint (`/api/oauth/usage`, which backs Session / Weekly / Sonnet / Extra
@@ -414,5 +458,3 @@ struct ClaudeAuthStore: Sendable {
         return String(digest.map { String(format: "%02x", $0) }.joined().prefix(8))
     }
 }
-
-
