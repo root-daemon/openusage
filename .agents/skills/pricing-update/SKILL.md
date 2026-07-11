@@ -5,7 +5,7 @@ description: Sync OpenUsage's pricing supplement with Cursor's published model p
 
 # Pricing Update
 
-`Sources/OpenUsage/Resources/pricing_supplement.json` prices the models no public catalog carries (Cursor-native models like `auto`, `composer-*`, `github_bugbot`), supplies fast-variant multipliers, and maps provider log/CSV slugs to canonical pricing keys. On merge to `main`, `.github/workflows/pricing-supplement.yml` validates it and publishes it to GitHub Pages; installed apps pick it up within ~a day — no release needed. Full background: `docs/pricing.md`.
+`Sources/OpenUsage/Resources/pricing_supplement.json` prices the models no public catalog carries (Cursor-native models like `auto`, `composer-*`, `github_bugbot`), supplies fast-variant multipliers, and maps provider log/CSV slugs to canonical pricing keys. On merge to `main`, `.github/workflows/pricing-supplement.yml` validates it and publishes it to GitHub Pages; installed apps pick it up within about an hour — no release needed. Full background: `docs/pricing.md`.
 
 Only the supplement needs manual care. Normal API models (new Claude/GPT/Gemini/Grok releases) are priced automatically by the daily LiteLLM and models.dev fetches — do not add them to the supplement unless they need an alias rule or the catalogs are wrong.
 

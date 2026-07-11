@@ -22,7 +22,7 @@ It also reports **crashes**, so we can find and fix the bugs that make the app q
 
 ## Other network requests
 
-Besides the provider API calls the vendor's own tools would make, OpenUsage fetches public [model price lists](pricing.md) about once a day (from `raw.githubusercontent.com`, `models.dev`, and this project's GitHub Pages). These are plain downloads of public data — they carry no usage, log, or account information, and they run regardless of the Share Anonymous Usage setting. The spend tiles are computed from local CLI logs entirely on your Mac; no log data ever leaves it.
+Besides the provider API calls the vendor's own tools would make, OpenUsage fetches public [model price lists](pricing.md) about once an hour (from `raw.githubusercontent.com`, `models.dev`, and this project's GitHub Pages). These are plain downloads of public data — they carry no usage, log, or account information, and they run regardless of the Share Anonymous Usage setting. The spend tiles are computed from local CLI logs entirely on your Mac; no log data ever leaves it.
 
 ## How it works
 

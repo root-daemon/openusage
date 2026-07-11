@@ -112,7 +112,7 @@ final class ModelPricingStoreTests: XCTestCase {
         let (store, _) = makeStore(handler: { Self.respond(to: $0) })
         await store.refreshNow()
 
-        let later = Date().addingTimeInterval(25 * 60 * 60)
+        let later = Date().addingTimeInterval(2 * 60 * 60)
         let (aged, http) = makeStore(
             handler: { request in
                 XCTAssertEqual(request.headers["If-None-Match"], "\"v1\"")
@@ -131,7 +131,7 @@ final class ModelPricingStoreTests: XCTestCase {
         let (store, _) = makeStore(handler: { Self.respond(to: $0) })
         await store.refreshNow()
 
-        let later = Date().addingTimeInterval(25 * 60 * 60)
+        let later = Date().addingTimeInterval(2 * 60 * 60)
         let (aged, _) = makeStore(handler: { _ in
             HTTPResponse(statusCode: 500, headers: [:], body: Data())
         }, now: { later })
@@ -145,7 +145,7 @@ final class ModelPricingStoreTests: XCTestCase {
         let (store, _) = makeStore(handler: { Self.respond(to: $0) })
         await store.refreshNow()
 
-        let later = Date().addingTimeInterval(25 * 60 * 60)
+        let later = Date().addingTimeInterval(2 * 60 * 60)
         let (aged, _) = makeStore(handler: { _ in
             HTTPResponse(statusCode: 200, headers: [:], body: Data("not json".utf8))
         }, now: { later })
