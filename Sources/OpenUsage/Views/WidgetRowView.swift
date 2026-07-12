@@ -361,10 +361,17 @@ struct WidgetRowView: View {
                         modelHover.detailHover(inside)
                     }
                 } else if data.showsResetExpiries {
-                    RateLimitResetsDetail(title: data.title, count: data.resetCreditCount,
-                                          expiries: data.expiriesAt) { inside in
-                        modelHover.detailHover(inside)
-                    }
+                    RateLimitResetsDetail(
+                        title: data.title, count: data.resetCreditCount, expiries: data.expiriesAt,
+                        onHoverChange: { inside in modelHover.detailHover(inside) },
+                        onPinChange: { pinned in modelHover.setPinned(pinned) },
+                        // MOCK: no real claim yet — always succeeds after a short delay so the
+                        // confirm / in-flight / result flow can be exercised without spending a credit.
+                        claim: { _ in
+                            try? await Task.sleep(for: .milliseconds(1100))
+                            return .success
+                        }
+                    )
                 }
             }
         }

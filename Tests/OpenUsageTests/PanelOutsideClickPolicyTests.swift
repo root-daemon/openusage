@@ -14,11 +14,21 @@ final class PanelOutsideClickPolicyTests: XCTestCase {
             .init(isPanelWindow: true),
             .init(isStatusItemWindow: true),
             .init(eventWindowTypeName: "NSMenuWindow"),
+            .init(eventWindowTypeName: "_NSPopoverWindow"),
         ]
 
         for context in contexts {
             XCTAssertTrue(PanelOutsideClickPolicy.shouldKeepOpen(context))
         }
+    }
+
+    func testPopoverWindowMatchIsCaseInsensitive() {
+        // A click inside a hover popover (its own `_NSPopoverWindow`, floating outside the panel frame)
+        // must keep the panel open so interactive controls in it — the resets "Use" button — receive
+        // the click instead of being dismissed as an outside click.
+        XCTAssertTrue(
+            PanelOutsideClickPolicy.shouldKeepOpen(.init(eventWindowTypeName: "myPOPOVERwindow"))
+        )
     }
 
     func testInsidePanelKeepsOpenWithoutAnEventWindow() {

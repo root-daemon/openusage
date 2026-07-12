@@ -111,5 +111,10 @@ enum PanelOutsideClickPolicy {
             || context.isPanelWindow
             || context.isStatusItemWindow
             || context.eventWindowTypeName?.localizedCaseInsensitiveContains("menu") == true
+            // A hover popover (model breakdown, usage trend, resets timeline) is its own window that
+            // floats *outside* the panel frame, so a click on an interactive control inside it — e.g.
+            // the resets "Use" button — otherwise reads as an outside click and tears the panel down
+            // before the control's mouse-up fires. Its backing window class is `_NSPopoverWindow`.
+            || context.eventWindowTypeName?.localizedCaseInsensitiveContains("popover") == true
     }
 }
