@@ -263,8 +263,13 @@ struct WidgetRowView: View {
         unboundedRowContent
             .onChange(of: data.modelBreakdown) { _, _ in modelHover.dismiss() }
             // A refresh can replace the reset credits (count and expiries) while the popover is open;
-            // drop it so it never lingers over a stale timeline.
-            .onChange(of: data.expiriesAt) { _, _ in modelHover.dismiss() }
+            // drop it so it never lingers over a stale timeline — except while the claim flow has the
+            // popover pinned: the claim's own forced refresh is what changes the credits, and dismissing
+            // on it would close the popover before the claim's result banner ever renders. The pinned
+            // popover re-renders from the new data instead (the detail view reconciles its own state).
+            .onChange(of: data.expiriesAt) { _, _ in
+                if !modelHover.isPinned { modelHover.dismiss() }
+            }
             .onDisappear { modelHover.dismiss() }
     }
 

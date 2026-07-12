@@ -70,6 +70,12 @@ struct RateLimitResetsDetail: View {
                     // Unfold from the top edge as the claimed node collapses below — one combined motion.
                     .transition(.scale(scale: 0.95, anchor: .top).combined(with: .opacity))
             }
+            // The claim's forced refresh can remove the in-flight credit from `expiries` a beat before
+            // the outcome resolves; keep the "Resetting…" row alive across that gap so the spinner
+            // hands off to the banner instead of blinking out.
+            if let claimingExpiry, !visibleExpiries.contains(claimingExpiry) {
+                claimingRow().transition(.opacity)
+            }
             switch Self.content(count: count - claimedExpiries.count, expiries: visibleExpiries) {
             case .timeline(let entries): timeline(entries)
             case .unknownExpiries(let count): unknownExpiriesState(count)
@@ -86,6 +92,15 @@ struct RateLimitResetsDetail: View {
             switch phase {
             case .active: onHoverChange(true)
             case .ended: onHoverChange(false)
+            }
+        }
+        // The credits can change under an open (pinned) popover — a background refresh, or the claim's
+        // own forced refresh. If the credit awaiting confirmation vanished, fold the confirm card away
+        // (and release the pin) rather than stranding a pinned popover whose active node no longer
+        // exists. An in-flight claim is left alone: its outcome handler owns the state.
+        .onChange(of: expiries) { _, newValue in
+            if let confirming = confirmingExpiry, !newValue.contains(confirming) {
+                cancelConfirm()
             }
         }
     }

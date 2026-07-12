@@ -49,7 +49,7 @@ final class CodexResetClaimTests: XCTestCase {
         }
         let service = CodexResetClaimService(
             usageClient: CodexUsageClient(http: http),
-            credentials: { ("token-123", "acct-456") },
+            credentialCandidates: { [("token-123", "acct-456")] },
             refreshAfterClaim: { refreshes.count += 1 }
         )
         return (service, http)
@@ -187,7 +187,7 @@ final class CodexResetClaimTests: XCTestCase {
                 XCTFail("no request should be sent without credentials")
                 return HTTPResponse(statusCode: 500, headers: [:], body: Data())
             }),
-            credentials: { nil },
+            credentialCandidates: { [] },
             refreshAfterClaim: { refreshes.count += 1 }
         )
         let credentialOutcome = await noCredentials.claim(creditExpiringAt: Self.expiry, redeemRequestID: "redeem-1")
@@ -207,5 +207,91 @@ final class CodexResetClaimTests: XCTestCase {
 
         XCTAssertEqual(outcome, .nothingToReset)
         XCTAssertEqual(refreshes.count, 1)
+    }
+
+    // MARK: - Idempotent replay
+
+    func testRetryWithSameKeyReplaysTheConsumeInsteadOfNoCredit() async throws {
+        // First claim succeeds; the retry (same idempotency key) arrives after the credit has left the
+        // list — the lost-response scenario. The service must replay the consume with the cached credit
+        // id (the server answers `already_redeemed` → success), NOT re-match and misreport `.noCredit`.
+        let listBodies = [Self.listBody(), Data(#"{"credits": [], "available_count": 0}"#.utf8)]
+        let listCalls = RefreshCounter()
+        let consumeCodes = ["reset", "already_redeemed"]
+        let consumeCalls = RefreshCounter()
+        let http = RoutingHTTPClient { request in
+            switch request.url {
+            case CodexUsageClient.resetCreditsURL:
+                defer { listCalls.count += 1 }
+                return HTTPResponse(statusCode: 200, headers: [:], body: listBodies[min(listCalls.count, 1)])
+            case CodexUsageClient.consumeResetCreditURL:
+                defer { consumeCalls.count += 1 }
+                return HTTPResponse(statusCode: 200, headers: [:],
+                                    body: Self.consumeBody(code: consumeCodes[min(consumeCalls.count, 1)]))
+            default:
+                XCTFail("unexpected request: \(request.url)")
+                return HTTPResponse(statusCode: 500, headers: [:], body: Data())
+            }
+        }
+        let service = CodexResetClaimService(
+            usageClient: CodexUsageClient(http: http),
+            credentialCandidates: { [("token-123", "acct-456")] }
+        )
+
+        let first = await service.claim(creditExpiringAt: Self.expiry, redeemRequestID: "redeem-1")
+        let retry = await service.claim(creditExpiringAt: Self.expiry, redeemRequestID: "redeem-1")
+
+        XCTAssertEqual(first, .success)
+        XCTAssertEqual(retry, .success, "already_redeemed proves the original claim landed")
+        XCTAssertEqual(listCalls.count, 1, "the replay skips re-matching entirely")
+        XCTAssertEqual(consumeCalls.count, 2)
+        let replay = try XCTUnwrap(http.requests.last)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(replay.body)) as? [String: String])
+        XCTAssertEqual(payload["credit_id"], "RateLimitResetCredit_target", "the originally matched credit id")
+    }
+
+    // MARK: - Credential fallback
+
+    func testClaimFallsBackAcrossCredentialCandidatesOnAuthRejection() async throws {
+        // The first candidate is stale (401 on the list fetch); the provider's probe would fall back to
+        // the second, and so must the claim.
+        let http = RoutingHTTPClient { request in
+            let stale = request.headers["Authorization"] == "Bearer stale-token"
+            switch request.url {
+            case CodexUsageClient.resetCreditsURL:
+                return stale
+                    ? HTTPResponse(statusCode: 401, headers: [:], body: Data())
+                    : HTTPResponse(statusCode: 200, headers: [:], body: Self.listBody())
+            case CodexUsageClient.consumeResetCreditURL:
+                XCTAssertFalse(stale, "consume must use the candidate that authenticated the list fetch")
+                return HTTPResponse(statusCode: 200, headers: [:], body: Self.consumeBody(code: "reset"))
+            default:
+                XCTFail("unexpected request: \(request.url)")
+                return HTTPResponse(statusCode: 500, headers: [:], body: Data())
+            }
+        }
+        let service = CodexResetClaimService(
+            usageClient: CodexUsageClient(http: http),
+            credentialCandidates: { [("stale-token", "acct-old"), ("live-token", "acct-456")] }
+        )
+
+        let outcome = await service.claim(creditExpiringAt: Self.expiry, redeemRequestID: "redeem-1")
+
+        XCTAssertEqual(outcome, .success)
+        let consume = try XCTUnwrap(http.requests.last)
+        XCTAssertEqual(consume.headers["Authorization"], "Bearer live-token")
+    }
+
+    func testClaimFailsWhenEveryCandidateIsRejected() async {
+        let http = RoutingHTTPClient { _ in HTTPResponse(statusCode: 401, headers: [:], body: Data()) }
+        let service = CodexResetClaimService(
+            usageClient: CodexUsageClient(http: http),
+            credentialCandidates: { [("stale-1", nil), ("stale-2", nil)] }
+        )
+
+        let outcome = await service.claim(creditExpiringAt: Self.expiry, redeemRequestID: "redeem-1")
+
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(http.requests.count, 2, "every candidate is tried once, then the claim fails loudly")
     }
 }

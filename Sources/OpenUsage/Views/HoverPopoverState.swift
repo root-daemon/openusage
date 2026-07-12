@@ -29,8 +29,12 @@ final class HoverPopoverState {
     /// While pinned, the popover stays open regardless of cursor position — set during a multi-step
     /// interaction inside the popover (the resets claim confirm/in-flight flow) where a cursor slip
     /// outside must not tear the flow down. `dismiss()` still wins (panel close), and clearing it
-    /// re-arms the normal hover-out hide.
+    /// re-arms the normal hover-out hide. Readable (`isPinned`) so data-driven dismissals — the row's
+    /// "credits changed under the popover" onChange — can stand down while the claim flow owns the
+    /// popover: the claim itself changes the credits, and dismissing on that change would tear the
+    /// popover down before its result ever renders.
     @ObservationIgnored private var pinned = false
+    var isPinned: Bool { pinned }
     @ObservationIgnored private var showTask: Task<Void, Never>?
     @ObservationIgnored private var hideTask: Task<Void, Never>?
 

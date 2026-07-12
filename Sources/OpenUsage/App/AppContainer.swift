@@ -116,13 +116,24 @@ final class AppContainer {
 
         // The resets popover's claim service, sharing the Codex provider's credential loading and HTTP
         // client so the claim's auth can't drift from the provider's. A successful claim forces a Codex
-        // refresh so the meters and credit count reconcile before the popover shows its result.
+        // refresh so the meters and credit count reconcile before the popover shows its result. The
+        // forced refresh returns `.skipped` when another refresh already owns the provider — and that
+        // in-flight probe may carry *pre-claim* usage — so retry until this refresh actually runs
+        // (bounded; the racing probe finishes in seconds).
         self.codexResetClaim = providers.compactMap { $0 as? CodexProvider }.first.map { codex in
             CodexResetClaimService(
                 authStore: codex.authStore,
                 usageClient: codex.usageClient,
                 refreshAfterClaim: { [weak dataStore] in
-                    _ = await dataStore?.refresh(providerID: codex.provider.id, force: true)
+                    for attempt in 0..<10 {
+                        guard let dataStore else { return }
+                        if await dataStore.refresh(providerID: codex.provider.id, force: true) != .skipped {
+                            return
+                        }
+                        AppLog.info(LogTag.plugin("codex"), "post-claim refresh waiting out an in-flight refresh (attempt \(attempt + 1))")
+                        try? await Task.sleep(for: .milliseconds(500))
+                    }
+                    AppLog.error(LogTag.plugin("codex"), "post-claim refresh kept being skipped; meters may lag until the next cycle")
                 }
             )
         }
