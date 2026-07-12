@@ -103,4 +103,11 @@ final class PopoverTransparencyStyleTests: XCTestCase {
         XCTAssertTrue(PopoverTransparencyStyle.party.wantsShadow)
         XCTAssertFalse(PopoverTransparencyStyle.drunk.wantsShadow)
     }
+
+    func testReadableTranslucentStylesReinforceChromeLegibility() {
+        XCTAssertFalse(PopoverTransparencyStyle.opaque.needsChromeLegibilityBacking)
+        XCTAssertTrue(PopoverTransparencyStyle.increased.needsChromeLegibilityBacking)
+        XCTAssertTrue(PopoverTransparencyStyle.party.needsChromeLegibilityBacking)
+        XCTAssertFalse(PopoverTransparencyStyle.drunk.needsChromeLegibilityBacking)
+    }
 }

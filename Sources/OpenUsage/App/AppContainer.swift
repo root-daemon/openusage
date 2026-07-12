@@ -12,14 +12,14 @@ final class AppContainer {
     let codexAccounts: CodexAccountStore
     let codexOAuth: CodexOAuthCoordinator
     /// Single source of truth for which providers the user has turned off. Both stores consult it (via
-    /// injected closures) and the Providers settings tab drives it.
+    /// injected closures) and the Customize provider list drives it.
     let enablement: ProviderEnablementStore
-    /// Providers that need a user-supplied API key (OpenRouter today), conforming to `APIKeyManaging`.
-    /// Settings ▸ API Keys lists these and writes key changes through the capability. Empty when no
-    /// installed provider needs a user key, in which case the section hides itself.
+    /// Providers that need a user-supplied API key (currently OpenRouter and Z.ai), conforming to
+    /// `APIKeyManaging`. Each matching Customize provider detail shows an API Key section and writes
+    /// changes through the capability. Empty when no installed provider needs a user key.
     var apiKeyProviders: [any APIKeyManaging]
-    /// Quota pace notification preferences (master + three triggers). Drives the Settings section and is
-    /// read by `WidgetDataStore.evaluateNotifications`.
+    /// Quota pace notification preferences (three independent triggers). Drives the Settings section
+    /// and is read by `WidgetDataStore.evaluateNotifications`.
     let notificationSettings: NotificationSettingsStore
     /// Anonymous, opt-out usage telemetry (daily rollups). Exposed so Settings can toggle it and the
     /// app-termination hook can flush any queued events.
@@ -31,6 +31,11 @@ final class AppContainer {
     /// One-time onboarding state (the first-run Customize hint card). Only ever marked pending by
     /// `FirstRunSeeder` on a fresh install, so existing installs never see the card.
     let onboarding: OnboardingStore
+    /// Claims Codex rate-limit reset credits from the resets popover (the app's only provider-API
+    /// write). Shares the Codex provider's auth store and usage client; `nil` only if the Codex
+    /// provider were ever removed from the registry. Injected into the view tree via
+    /// `\.codexResetClaim`.
+    let codexResetClaim: CodexResetClaimService?
     /// The provider runtimes, kept so on-demand credential detection (the Customize "Reset All" reseed)
     /// can re-probe `hasLocalCredentials()` the same way first-run seeding does.
     private var providers: [ProviderRuntime]
@@ -111,6 +116,48 @@ final class AppContainer {
         self.layout = layout
         self.dataStore = dataStore
 
+        // The resets popover's claim service, sharing the Codex provider's credential loading and HTTP
+        // client so the claim's auth can't drift from the provider's. A successful claim forces a Codex
+        // refresh so the meters and credit count reconcile before the popover shows its result. The
+        // forced refresh returns `.skipped` when another refresh already owns the provider — and that
+        // in-flight probe may carry *pre-claim* usage — so retry until this refresh actually runs
+        // (bounded; the racing probe finishes in seconds).
+        self.codexResetClaim = providers.compactMap { $0 as? CodexProvider }.first.map { codex in
+            CodexResetClaimService(
+                authStore: codex.authStore,
+                usageClient: codex.usageClient,
+                refreshAfterClaim: { [weak dataStore] in
+                    // The bound must outlast the provider's slowest refresh: usage fetch (10s timeout)
+                    // + token refresh (15s) + usage retry (10s) + reset-credit fetch (10s) ≈ 45s. The
+                    // common race (the periodic timer's probe) clears in a couple of seconds; the
+                    // pathological one keeps the popover's honest "Resetting…" up rather than showing
+                    // a success banner over pre-claim meters. A `.failed` probe is retried a few times
+                    // too — a transient flake right after the claim must not strand pre-claim meters
+                    // behind a success banner — before giving up loudly (the provider error already
+                    // shows on the card, so the staleness isn't silent).
+                    var failures = 0
+                    for attempt in 0..<45 {
+                        guard let dataStore else { return }
+                        switch await dataStore.refresh(providerID: codex.provider.id, force: true) {
+                        case .refreshed, .cacheHit, .backedOff:
+                            return
+                        case .failed:
+                            failures += 1
+                            guard failures < 3 else {
+                                AppLog.error(LogTag.plugin("codex"), "post-claim refresh failed \(failures) times; meters may lag until the next cycle")
+                                return
+                            }
+                            try? await Task.sleep(for: .seconds(2))
+                        case .skipped:
+                            AppLog.info(LogTag.plugin("codex"), "post-claim refresh waiting out an in-flight refresh (attempt \(attempt + 1))")
+                            try? await Task.sleep(for: .seconds(1))
+                        }
+                    }
+                    AppLog.error(LogTag.plugin("codex"), "post-claim refresh kept being skipped; meters may lag until the next cycle")
+                }
+            )
+        }
+
         // Anonymous, opt-out usage telemetry (two daily-rollup events). Its state lives in a dedicated
         // UserDefaults suite, kept separate from app settings so the user's opt-out choice and the
         // install id stay independent of any settings change. The snapshot closure reads the live
@@ -152,7 +199,7 @@ final class AppContainer {
         localAPI.start()
         // Become the notification-center delegate so banners show while frontmost — a menu-bar accessory
         // effectively always is. Notification authorization is requested the first time a trigger is
-        // turned on (from Settings), not at launch — triggers default off. No-op under tests.
+        // turned on in Settings, not at launch — triggers default off. No-op under tests.
         AppNotifications.shared.registerAsDelegate()
     }
 
@@ -235,6 +282,7 @@ final class AppContainer {
             CopilotProvider(),
             DevinProvider(),
             GrokProvider(),
+            OpenCodeProvider(),
             OpenRouterProvider(),
             ZAIProvider()
         ]

@@ -26,6 +26,9 @@ enum DefaultLayout {
         "grok.weekly", "grok.trend",
         "grok.payAsYouGo", "grok.today", "grok.yesterday", "grok.last30",
 
+        "opencode.session", "opencode.weekly", "opencode.monthly", "opencode.trend",
+        "opencode.today", "opencode.yesterday", "opencode.last30",
+
         "openrouter.credits", "openrouter.balance",
         "openrouter.today", "openrouter.week", "openrouter.month", "openrouter.keyLimit",
 
@@ -65,7 +68,7 @@ enum DefaultLayout {
         "zai.session", "zai.weekly"
     ]
 
-    /// Metrics tucked below the per-provider "Shown on expand" divider on a fresh install. This is
+    /// Metrics placed in the per-provider On Demand section on a fresh install. This is
     /// membership, not enablement: optional disabled rows like Sonnet or Cursor Requests/Credits are
     /// listed here so if the user enables them later they appear below the caret by default.
     /// Filtered to the active registry by `LayoutStore`, and only seeded on a genuinely fresh launch
@@ -90,6 +93,9 @@ enum DefaultLayout {
         "copilot.orgCredits", "copilot.orgSpend", "copilot.chat", "copilot.completions",
         "devin.extra",
         "grok.payAsYouGo", "grok.today", "grok.yesterday", "grok.last30",
+        // OpenCode: the three Go caps (Session/Weekly/Monthly) and Usage Trend stay above the fold —
+        // matching every other provider — with the spend tiles (Today/Yesterday/Last 30 Days) below.
+        "opencode.today", "opencode.yesterday", "opencode.last30",
         // OpenRouter: Credits meter + Balance stay above the fold; period spend and the per-key cap
         // sit below the caret.
         "openrouter.today", "openrouter.week", "openrouter.month", "openrouter.keyLimit",

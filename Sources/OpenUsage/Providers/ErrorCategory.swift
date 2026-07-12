@@ -14,6 +14,8 @@ enum ErrorCategory: String, Sendable, CaseIterable, Codable {
     case authExpired = "auth_expired"
     /// Auth is structurally wrong rather than stale (bad payload, misconfigured OAuth URL, unsupported key).
     case authInvalid = "auth_invalid"
+    /// Local credential material exists, but its file, database, or Keychain entry could not be read.
+    case credentialAccess = "credential_access"
     /// The request never completed (transport / connection failure).
     case network = "network"
     /// A response came back but could not be parsed / a required field was missing.
@@ -55,6 +57,7 @@ extension ClaudeAuthError: CategorizedError {
         case .notLoggedIn, .desktopAppOnly: .notLoggedIn
         case .sessionExpired, .tokenExpired: .authExpired
         case .invalidOAuthURL: .authInvalid
+        case .credentialsChanged: .other
         }
     }
 }
@@ -168,6 +171,15 @@ extension CopilotUsageError: CategorizedError {
     }
 }
 
+extension OpenCodeUsageError: CategorizedError {
+    var errorCategory: ErrorCategory {
+        switch self {
+        case .notLoggedIn: .notLoggedIn
+        case .credentialsUnreadable, .databaseUnreadable: .credentialAccess
+        }
+    }
+}
+
 extension OpenRouterAuthError: CategorizedError {
     var errorCategory: ErrorCategory {
         switch self {
@@ -221,6 +233,8 @@ extension AntigravityError: CategorizedError {
     var errorCategory: ErrorCategory {
         switch self {
         case .notSignedIn: .notLoggedIn
+        case .credentialStoreUnreadable: .credentialAccess
+        case .invalidCredentialData: .authInvalid
         case .authExpired: .authExpired
         case .unavailable: .network
         }

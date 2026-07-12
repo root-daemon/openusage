@@ -1,14 +1,14 @@
 import Foundation
 
 /// Owns the app's model pricing data: bundled snapshots for offline first launch, on-disk caches in
-/// Application Support, and daily refreshes from the live feeds (LiteLLM, models.dev, and the
+/// Application Support, and hourly refreshes from the live feeds (LiteLLM, models.dev, and the
 /// OpenUsage pricing supplement on gh-pages). `current()` never blocks on the network — it serves
 /// the freshest data on hand and revalidates in the background (stale-while-revalidate).
 actor ModelPricingStore {
     static let shared = ModelPricingStore()
 
     /// Refetch a source this long after its last success.
-    private static let refreshInterval: TimeInterval = 24 * 60 * 60
+    private static let refreshInterval: TimeInterval = 60 * 60
     /// Retry a failed source after this long (keeps failure logs from repeating every provider pass).
     private static let failureRetryInterval: TimeInterval = 30 * 60
 

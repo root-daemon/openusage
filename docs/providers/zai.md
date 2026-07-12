@@ -9,7 +9,8 @@ Tracks [Z.ai](https://z.ai) (Zhipu AI) GLM Coding Plan usage quotas for coding s
 | Session | 5-hour rolling window token usage (percentage) |
 | Weekly | 7-day rolling window token usage (percentage) |
 | Web Searches | Monthly web-search / web-reader / Zread calls (used / limit) |
-| Plan | Your plan name (optional widget) |
+
+When Z.ai reports your plan name, OpenUsage shows it beside the provider name.
 
 ## Where credentials come from
 
@@ -45,7 +46,9 @@ Two undocumented internal endpoints Z.ai's own subscription UI uses (stable in p
 - `GET https://api.z.ai/api/monitor/usage/quota/limit` — the quota meters.
 
 The quota response carries a `limits` array. Each `TOKENS_LIMIT` entry is a token window; its
-window length decides which meter it feeds (sub-daily → Session, multi-day → Weekly), so a `TIME_LIMIT` entry is the monthly web-search count. Reset times come back as epoch milliseconds.
+window length decides which meter it feeds (sub-daily → Session, multi-day → Weekly), while a
+`TIME_LIMIT` entry is the monthly web-search count. Reset times come back as epoch milliseconds.
+Missing required usage values are reported as an invalid response instead of being shown as zero.
 
 ## Troubleshooting
 

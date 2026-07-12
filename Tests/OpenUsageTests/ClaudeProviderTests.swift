@@ -101,6 +101,73 @@ final class ClaudeAuthStoreTests: XCTestCase {
         XCTAssertEqual(store.liveUsageAvailability(credentials!), .inferenceOnlyToken)
     }
 
+    func testEnvTokenDoesNotShadowProfileScopedStoredLogin() {
+        // An inference-only CLAUDE_CODE_OAUTH_TOKEN (often just ambiently exported and captured from the
+        // login shell) must not shadow a real stored login that CAN read usage. The profile-scoped login
+        // is preferred for the live usage call; the env token trails as an inference-only fallback.
+        let keychain = ServiceKeychain()
+        keychain.currentUserValues["Claude Code-credentials"] =
+            #"{"claudeAiOauth":{"accessToken":"keychain-token","subscriptionType":"max","scopes":["user:inference","user:profile"]}}"#
+        let store = ClaudeAuthStore(
+            environment: FakeEnvironment(["CLAUDE_CODE_OAUTH_TOKEN": "env-token"]),
+            files: FakeFiles(),
+            keychain: keychain
+        )
+
+        let candidates = store.loadCredentialCandidates()
+
+        XCTAssertEqual(candidates.map(\.oauth.accessToken), ["keychain-token", "env-token"])
+        // The keychain login (first) can fetch live usage; the env token is the inference-only fallback.
+        XCTAssertEqual(store.liveUsageAvailability(candidates[0]), .available)
+        XCTAssertFalse(candidates[0].inferenceOnly)
+        XCTAssertEqual(store.liveUsageAvailability(candidates[1]), .inferenceOnlyToken)
+    }
+
+    func testEnvTokenIsSoleCandidateWhenStoredLoginCannotReadUsage() {
+        // A stored login that itself lacks user:profile can't read usage either, so it is not preferred
+        // over the env token; the env token stays the sole inference-only candidate (spend tiles still
+        // load) — the headless/no-usable-login behavior is unchanged.
+        let keychain = ServiceKeychain()
+        keychain.currentUserValues["Claude Code-credentials"] =
+            #"{"claudeAiOauth":{"accessToken":"inference-login","subscriptionType":"max","scopes":["user:inference"]}}"#
+        let store = ClaudeAuthStore(
+            environment: FakeEnvironment(["CLAUDE_CODE_OAUTH_TOKEN": "env-token"]),
+            files: FakeFiles(),
+            keychain: keychain
+        )
+
+        let candidates = store.loadCredentialCandidates()
+
+        XCTAssertEqual(candidates.map(\.oauth.accessToken), ["env-token"])
+        XCTAssertEqual(store.liveUsageAvailability(candidates[0]), .inferenceOnlyToken)
+    }
+
+    func testEnvFallbackBorrowsMetadataFromThePreferredLiveCapableLogin() {
+        // When the first stored login is NOT live-capable but a later one is (an inference-only keychain
+        // login plus a profile-scoped file login), the env fallback should inherit its display metadata
+        // from the credential actually preferred (the file login), not from the keychain login we skipped.
+        let files = FakeFiles([
+            "/tmp/claude/.credentials.json":
+                #"{"claudeAiOauth":{"accessToken":"file-token","subscriptionType":"max","scopes":["user:inference","user:profile"]}}"#
+        ])
+        let keychain = ServiceKeychain()
+        let store = ClaudeAuthStore(
+            environment: FakeEnvironment(["CLAUDE_CONFIG_DIR": "/tmp/claude", "CLAUDE_CODE_OAUTH_TOKEN": "env-token"]),
+            files: files,
+            keychain: keychain
+        )
+        keychain.currentUserValues[store.keychainServiceCandidates().first!] =
+            #"{"claudeAiOauth":{"accessToken":"keychain-token","subscriptionType":"pro","scopes":["user:inference"]}}"#
+
+        let candidates = store.loadCredentialCandidates()
+
+        // Keychain login (no user:profile) is dropped from the usage-capable set; the file login is
+        // preferred and the env token trails.
+        XCTAssertEqual(candidates.map(\.oauth.accessToken), ["file-token", "env-token"])
+        // The env fallback borrows the preferred (file) login's plan, not the skipped keychain login's.
+        XCTAssertEqual(candidates[1].oauth.subscriptionType, "max")
+    }
+
     func testLiveUsageAvailabilityReflectsProfileScope() {
         let store = ClaudeAuthStore(environment: FakeEnvironment(), files: FakeFiles(), keychain: FakeKeychain())
         func state(_ scopes: [String]?, inferenceOnly: Bool = false) -> ClaudeCredentialState {

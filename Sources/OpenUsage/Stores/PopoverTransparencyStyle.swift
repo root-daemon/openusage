@@ -44,6 +44,16 @@ enum PopoverTransparencyStyle: Equatable, Sendable {
         }
     }
 
+    /// Whether custom Liquid Glass controls need an adaptive material backing. The opaque tray already
+    /// gives glass a stable base, while Increase Transparency and readable Party Mode can otherwise put
+    /// the control directly over a similarly colored desktop. Drunk Mode remains deliberately faint.
+    var needsChromeLegibilityBacking: Bool {
+        switch self {
+        case .increased, .party: return true
+        case .opaque, .drunk: return false
+        }
+    }
+
     /// The single home for the precedence rules. Reduce Transparency and Increase Contrast are
     /// accessibility *needs*, not preferences, so they clamp everything to opaque first — neither the
     /// opt-in "Increase Transparency" toggle nor the secret-code egg may turn the panel translucent or

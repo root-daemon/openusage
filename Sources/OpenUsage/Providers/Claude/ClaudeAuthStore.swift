@@ -62,11 +62,44 @@ struct ClaudeCredentialState: Hashable, Sendable {
     }
 }
 
+/// Token-bearing credential candidates in their effective probe order. Environment-only inference
+/// tokens are excluded because they never fetch live usage; every stored candidate that can affect
+/// selection remains, including an earlier source that the current refresh already tried and rejected.
+struct ClaudeCredentialGeneration: Equatable, Sendable {
+    struct Candidate: Equatable, Sendable {
+        let oauth: ClaudeOAuth
+        let source: ClaudeCredentialState.Source
+
+        init(_ state: ClaudeCredentialState) {
+            oauth = state.oauth
+            source = state.source
+        }
+    }
+
+    var candidates: [Candidate]
+
+    init(_ states: [ClaudeCredentialState]) {
+        candidates = states
+            .filter { $0.hasUsableAccessToken && !$0.inferenceOnly }
+            .map(Candidate.init)
+    }
+
+    func replacing(_ state: ClaudeCredentialState) -> Self {
+        var updated = self
+        guard let index = updated.candidates.firstIndex(where: { $0.source == state.source }) else {
+            fatalError("live usage source missing from Claude credential generation")
+        }
+        updated.candidates[index] = Candidate(state)
+        return updated
+    }
+}
+
 enum ClaudeAuthError: Error, LocalizedError, Equatable {
     case notLoggedIn
     case desktopAppOnly
     case sessionExpired
     case tokenExpired
+    case credentialsChanged
     case invalidOAuthURL(String)
 
     var errorDescription: String? {
@@ -79,6 +112,8 @@ enum ClaudeAuthError: Error, LocalizedError, Equatable {
             return "Session expired. Run `claude` to log in again."
         case .tokenExpired:
             return "Token expired. Run `claude` to log in again."
+        case .credentialsChanged:
+            return "Claude login changed during refresh. Refresh again."
         case .invalidOAuthURL(let value):
             return "Invalid Claude OAuth URL: \(value). Check CLAUDE_CODE_CUSTOM_OAUTH_URL / CLAUDE_LOCAL_OAUTH_API_BASE."
         }
@@ -94,7 +129,7 @@ enum ClaudeAuthError: Error, LocalizedError, Equatable {
         switch self {
         case .sessionExpired, .tokenExpired:
             return true
-        case .notLoggedIn, .desktopAppOnly, .invalidOAuthURL:
+        case .notLoggedIn, .desktopAppOnly, .credentialsChanged, .invalidOAuthURL:
             return false
         }
     }
@@ -138,20 +173,35 @@ struct ClaudeAuthStore: Sendable {
     /// re-login is picked up no matter which source it lands in, even when a stale/locked-out token still
     /// sits in another. Re-read on every refresh; nothing is cached in memory.
     func loadCredentialCandidates() -> [ClaudeCredentialState] {
-        // An explicit env token overrides everything and is inference-only (no live usage call), so there
-        // is no auth failure to fall back from — return the single env-wrapped candidate.
-        if let envAccessToken = envText("CLAUDE_CODE_OAUTH_TOKEN") {
-            let stored = orderedStoredCandidates().first
-            var oauth = stored?.oauth ?? ClaudeOAuth()
-            oauth.accessToken = envAccessToken
-            return [ClaudeCredentialState(
-                oauth: oauth,
-                source: stored?.source ?? .environment,
-                fullData: stored?.fullData,
-                inferenceOnly: true
-            )]
+        let stored = orderedStoredCandidates()
+        guard let envAccessToken = envText("CLAUDE_CODE_OAUTH_TOKEN") else {
+            return stored
         }
-        return orderedStoredCandidates()
+        // An explicit `CLAUDE_CODE_OAUTH_TOKEN` is inference-only (typically a `claude setup-token`
+        // token): it can run the model but 403s on the usage endpoint. It also reaches us when the user
+        // only *ambiently* has it exported — OpenUsage captures the login-shell environment — so it must
+        // not shadow a real interactive login that CAN read usage. Prefer any stored login able to fetch
+        // live usage (keychain-first, then file) for the usage call, with the env token kept as a
+        // trailing inference-only fallback for the refresh loop. With no live-capable stored login (a
+        // genuinely headless setup) the env token is the only candidate — unchanged: spend tiles still
+        // load. Nothing is silenced; only the credential SELECTED for the usage fetch changes.
+        let liveCapable = stored.filter { liveUsageAvailability($0) == .available }
+        // Borrow plan metadata (subscription type / scopes) for display from the credential actually
+        // preferred — the live-capable login when there is one, else the first stored login — so the
+        // fallback doesn't inherit metadata from a login we decided not to use. Source it honestly as
+        // `.environment`: the token came from the env, so the refresh-start diagnostics name the real
+        // source when the loop falls back to it, and `save()` correctly no-ops instead of writing an env
+        // token back into the keychain under a borrowed source.
+        let base = liveCapable.first ?? stored.first
+        var oauth = base?.oauth ?? ClaudeOAuth()
+        oauth.accessToken = envAccessToken
+        let envCandidate = ClaudeCredentialState(
+            oauth: oauth,
+            source: .environment,
+            fullData: base?.fullData,
+            inferenceOnly: true
+        )
+        return liveCapable.isEmpty ? [envCandidate] : liveCapable + [envCandidate]
     }
 
     /// Data folders the Claude desktop app keeps under `~/Library/Application Support` — the standalone
@@ -174,11 +224,19 @@ struct ClaudeAuthStore: Sendable {
         return expiresAt - now().timeIntervalSince1970 * 1000 <= 5 * 60 * 1000
     }
 
-    func save(_ state: ClaudeCredentialState) throws {
+    func credentialGeneration() -> ClaudeCredentialGeneration {
+        ClaudeCredentialGeneration(loadCredentialCandidates())
+    }
+
+    /// Save an OAuth rotation only if the ordered effective candidate set is unchanged. Checking the
+    /// whole generation catches a newly added higher-priority source as well as replacement in place.
+    /// The underlying stores provide no atomic compare-and-swap, so this remains best-effort.
+    func save(_ state: ClaudeCredentialState, ifUnchanged expected: ClaudeCredentialGeneration) throws -> Bool {
+        guard credentialGeneration() == expected else { return false }
         var fullData = state.fullData ?? ClaudeCredentialsFile()
         fullData.claudeAiOauth = state.oauth
         let data = try JSONEncoder().encode(fullData)
-        guard let text = String(data: data, encoding: .utf8) else { return }
+        guard let text = String(data: data, encoding: .utf8) else { return false }
 
         switch state.source {
         case .file:
@@ -188,10 +246,11 @@ struct ClaudeAuthStore: Sendable {
         case .keychainLegacy(let service):
             try keychain.writeGenericPassword(service: service, value: text)
         case .environment:
-            return
+            return false
         }
         // NEVER log the credential blob/tokens — only that a rotation was persisted, and to where.
         AppLog.debug(LogTag.auth("claude"), "persisted rotated credentials (source=\(state.source.label))")
+        return true
     }
 
     /// Why the live-usage endpoint (`/api/oauth/usage`, which backs Session / Weekly / Sonnet / Extra
@@ -399,5 +458,3 @@ struct ClaudeAuthStore: Sendable {
         return String(digest.map { String(format: "%02x", $0) }.joined().prefix(8))
     }
 }
-
-

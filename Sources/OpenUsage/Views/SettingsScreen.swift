@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import KeyboardShortcuts
-import ServiceManagement
 import SwiftUI
 import UserNotifications
 
@@ -15,12 +14,7 @@ struct SettingsScreen: View {
     @Environment(AppContainer.self) private var container
     @Environment(UpdaterController.self) private var updater
 
-    /// Launch at login goes through the system login-item registry (`SMAppService`), which is the
-    /// source of truth — no shadow preference key. Registration can fail (e.g. unbundled `swift run`),
-    /// so a failed flip resyncs the toggle from the actual status, logs the error, and surfaces a
-    /// friendly line under the row.
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var launchAtLoginError: String?
+    @State private var launchAtLogin = LaunchAtLoginSetting()
     @AppStorage(TotalSpendSetting.key) private var showTotalSpend = true
     @AppStorage(AppearanceSetting.key) private var appearance = AppearanceSetting.system
     @AppStorage(TimeFormatSetting.key) private var timeFormat = TimeFormatSetting.auto
@@ -52,31 +46,20 @@ struct SettingsScreen: View {
         // Same section rhythm as the dashboard and Customize (all read the density setting).
         return VStack(alignment: .leading, spacing: density.sectionSpacing) {
             section("General") {
-                // The dashboard's cross-provider Total Spend card; the card still requires two or
-                // more providers with spend data, so this toggle can't conjure it up alone.
+                // The dashboard's cross-provider Total Spend card; at least one enabled spend-capable
+                // provider must exist, so this toggle can't conjure it up alone.
                 row("Show Total Spend") {
                     Toggle("", isOn: $showTotalSpend)
                         .settingsSwitchStyle()
                 }
                 row("Launch at Login") {
-                    Toggle("", isOn: $launchAtLogin)
+                    Toggle("", isOn: Binding(
+                        get: { launchAtLogin.isEnabled },
+                        set: { launchAtLogin.update(to: $0) }
+                    ))
                         .settingsSwitchStyle()
-                        .onChange(of: launchAtLogin) { _, enabled in
-                            do {
-                                if enabled {
-                                    try SMAppService.mainApp.register()
-                                } else {
-                                    try SMAppService.mainApp.unregister()
-                                }
-                                launchAtLoginError = nil
-                            } catch {
-                                AppLog.error(.config, "Launch at Login \(enabled ? "register" : "unregister") failed: \(error.localizedDescription)")
-                                launchAtLoginError = "macOS wouldn't update Launch at Login. Check System Settings → Login Items."
-                                launchAtLogin = SMAppService.mainApp.status == .enabled
-                            }
-                        }
                 }
-                if let launchAtLoginError {
+                if let launchAtLoginError = launchAtLogin.errorMessage {
                     inlineNotice(launchAtLoginError)
                 }
                 // Click-to-record field; its ⓧ clears the combo and disables the shortcut.

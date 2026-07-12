@@ -112,7 +112,7 @@ final class LayoutStoreTests: XCTestCase {
         // claude.session stays above the fold by default (not in DefaultLayout.expandedMetricIDs).
         XCTAssertFalse(store.expandedMetricIDs.contains("claude.session"))
 
-        store.setMetricExpanded("claude.session", true)
+        XCTAssertTrue(moveMetric("claude.session", expanded: true, in: store))
         XCTAssertTrue(store.expandedMetricIDs.contains("claude.session"))
 
         XCTAssertTrue(store.undo())
@@ -260,6 +260,39 @@ final class LayoutStoreTests: XCTestCase {
 
         let reloaded = LayoutStore(registry: .mock, defaults: defaults, storageKey: "layout")
         XCTAssertTrue(reloaded.placed.isEmpty)
+    }
+
+    func testUnreadableStoredLayoutIsNotMistakenForFreshInstall() {
+        let defaults = makeDefaults("UnreadableExistingLayout")
+        defaults.set(Data("not valid layout data".utf8), forKey: "layout")
+
+        let store = LayoutStore(
+            registry: .mock,
+            defaults: defaults,
+            storageKey: "layout",
+            defaultExpandedMetricIDs: ["claude.weekly"]
+        )
+
+        XCTAssertFalse(
+            store.expandedMetricIDs.contains("claude.weekly"),
+            "present but damaged data is still an existing layout, so fresh-only defaults must stay off"
+        )
+    }
+
+    func testUnreadableSeedMarkerKeepsExistingUserBaseline() {
+        let defaults = makeDefaults("UnreadableSeedMarker")
+        saveStored([PlacedWidget(descriptorID: "claude.session")], forKey: "layout", in: defaults)
+        defaults.set(Data("not valid seeded-default data".utf8), forKey: "layout.seededDefaults")
+
+        let store = LayoutStore(
+            registry: .mock,
+            defaults: defaults,
+            storageKey: "layout",
+            defaultMetricIDs: ["claude.session", "claude.weekly"],
+            migrationBaselineMetricIDs: ["claude.session", "claude.weekly"]
+        )
+
+        XCTAssertEqual(store.placed.map(\.descriptorID), ["claude.session"])
     }
 
     func testExistingLayoutAutoSeedsOnlyDefaultsAddedAfterBaseline() {
@@ -582,11 +615,6 @@ final class LayoutStoreTests: XCTestCase {
         XCTAssertFalse(store.isMetricEnabled("cursor.credits"))
     }
 
-    func testPlanWidgetsAreNotRegisteredAsAddableMetrics() {
-        let store = makeStore("Plans")
-        XCTAssertFalse(store.availableToAdd.contains { PlanWidget.isPlan($0) })
-    }
-
     func testTogglingMetricDoesNotChangeCustomizeOrder() {
         let store = makeStore("ToggleKeepsOrder")
         let before = store.orderedSupportedMetrics(for: "cursor").map(\.id)
@@ -670,7 +698,7 @@ final class LayoutStoreTests: XCTestCase {
         XCTAssertEqual(primaryByProvider["claude"], ["claude.session", "claude.weekly", "claude.extra", "claude.trend"])
         XCTAssertEqual(expandedByProvider["claude"], ["claude.sonnet", "claude.fable", "claude.today", "claude.yesterday", "claude.last30"])
         XCTAssertEqual(primaryByProvider["codex"], ["codex.session", "codex.weekly", "codex.trend"])
-        // Spark (the optional model-specific limits) leads the expanded section, before credits.
+        // Spark (the optional model-specific limits) leads the On Demand section, before credits.
         XCTAssertEqual(expandedByProvider["codex"], [
             "codex.spark", "codex.sparkWeekly",
             "codex.credits", "codex.rateLimitResets", "codex.today", "codex.yesterday", "codex.last30"
@@ -781,9 +809,9 @@ final class LayoutStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.placed.map(\.descriptorID), ["claude.session"])
     }
 
-    // MARK: - Expanded ("Shown on expand") membership
+    // MARK: - On Demand membership
 
-    func testSetMetricExpandedMovesMetricBelowDividerAndPersists() {
+    func testDividerDragMovesMetricBelowDividerAndPersists() {
         let defaults = makeDefaults("ExpandMove")
         // Hermetic: start with nothing below the caret (independent of DefaultLayout's seeding).
         let store = LayoutStore(registry: .mock, defaults: defaults, storageKey: "layout", defaultExpandedMetricIDs: [])
@@ -792,7 +820,7 @@ final class LayoutStoreTests: XCTestCase {
         }
         XCTAssertFalse(store.expandedMetricIDs.contains(first))
 
-        XCTAssertTrue(store.setMetricExpanded(first, true))
+        XCTAssertTrue(moveMetric(first, expanded: true, in: store))
         XCTAssertTrue(store.expandedMetricIDs.contains(first))
 
         let group = store.customizeGroups.first { $0.provider.id == "claude" }
@@ -803,14 +831,14 @@ final class LayoutStoreTests: XCTestCase {
         XCTAssertTrue(reloaded.expandedMetricIDs.contains(first))
     }
 
-    func testSetMetricExpandedIsNoOpWhenAlreadyInSection() {
+    func testDividerDragIsNoOpWhenAlreadyInSection() {
         let store = LayoutStore(registry: .mock, defaults: makeDefaults("ExpandNoOp"), storageKey: "layout", defaultExpandedMetricIDs: [])
         guard let id = store.orderedSupportedMetrics(for: "claude").map(\.id).first else {
             return XCTFail("missing Claude metrics")
         }
-        XCTAssertFalse(store.setMetricExpanded(id, false), "already always-shown")
-        XCTAssertTrue(store.setMetricExpanded(id, true))
-        XCTAssertFalse(store.setMetricExpanded(id, true), "already expanded")
+        XCTAssertFalse(moveMetric(id, expanded: false, in: store), "already always-shown")
+        XCTAssertTrue(moveMetric(id, expanded: true, in: store))
+        XCTAssertFalse(moveMetric(id, expanded: true, in: store), "already expanded")
     }
 
     func testDraggingMetricOntoExpandedRowTucksItAway() {
@@ -825,7 +853,7 @@ final class LayoutStoreTests: XCTestCase {
         guard ids.count >= 2, let dragged = ids.first, let target = ids.last else {
             return XCTFail("need at least two Cursor metrics")
         }
-        XCTAssertTrue(store.setMetricExpanded(target, true))
+        XCTAssertTrue(moveMetric(target, expanded: true, in: store))
         XCTAssertFalse(store.expandedMetricIDs.contains(dragged))
 
         XCTAssertTrue(store.reorderMetric(dragged: dragged, target: target, in: "cursor"))
@@ -847,7 +875,7 @@ final class LayoutStoreTests: XCTestCase {
         guard ids.count >= 2, let target = ids.first, let dragged = ids.last else {
             return XCTFail("need at least two Cursor metrics")
         }
-        XCTAssertTrue(store.setMetricExpanded(dragged, true))
+        XCTAssertTrue(moveMetric(dragged, expanded: true, in: store))
 
         XCTAssertTrue(store.reorderMetric(dragged: dragged, target: target, in: "cursor"))
         XCTAssertFalse(store.expandedMetricIDs.contains(dragged), "dropping onto an always-shown row brings the dragged row back")
@@ -884,7 +912,7 @@ final class LayoutStoreTests: XCTestCase {
             defaultExpandedMetricIDs: []
         )
         let divider = "cursor::expanded-divider"
-        XCTAssertTrue(store.setMetricExpanded("cursor.requests", true))
+        XCTAssertTrue(moveMetric("cursor.requests", expanded: true, in: store))
 
         XCTAssertTrue(store.applyMetricDividerOrder([
             "cursor.usage",
@@ -932,7 +960,7 @@ final class LayoutStoreTests: XCTestCase {
         )
         XCTAssertFalse(store.isMetricEnabled("claude.extra"))
 
-        XCTAssertTrue(store.setMetricExpanded("claude.extra", true))
+        XCTAssertTrue(moveMetric("claude.extra", expanded: true, in: store))
         XCTAssertTrue(store.expandedMetricIDs.contains("claude.extra"))
         XCTAssertFalse(store.isMetricEnabled("claude.extra"))
 
@@ -975,7 +1003,7 @@ final class LayoutStoreTests: XCTestCase {
             storageKey: "layout",
             defaultExpandedMetricIDs: ["claude.weekly"]
         )
-        XCTAssertTrue(store.setMetricExpanded("claude.weekly", false))
+        XCTAssertTrue(moveMetric("claude.weekly", expanded: false, in: store))
         XCTAssertFalse(store.expandedMetricIDs.contains("claude.weekly"))
 
         store.resetToDefault()
@@ -1003,7 +1031,7 @@ final class LayoutStoreTests: XCTestCase {
         XCTAssertTrue(store.isMetricEnabled("claude.session"))
         XCTAssertTrue(store.isMetricEnabled("claude.weekly"))
 
-        XCTAssertTrue(store.setMetricExpanded("claude.weekly", true))
+        XCTAssertTrue(moveMetric("claude.weekly", expanded: true, in: store))
 
         let group = store.displayGroups.first { $0.provider.id == "claude" }
         XCTAssertEqual(group?.alwaysShownWidgets.compactMap { store.descriptor(for: $0)?.id }, ["claude.session"])
@@ -1021,8 +1049,8 @@ final class LayoutStoreTests: XCTestCase {
             defaultMetricIDs: ["claude.session", "claude.weekly"],
             defaultExpandedMetricIDs: []
         )
-        XCTAssertTrue(store.setMetricExpanded("claude.session", true))
-        XCTAssertTrue(store.setMetricExpanded("claude.weekly", true))
+        XCTAssertTrue(moveMetric("claude.session", expanded: true, in: store))
+        XCTAssertTrue(moveMetric("claude.weekly", expanded: true, in: store))
 
         let group = store.displayGroups.first { $0.provider.id == "claude" }
         XCTAssertNotNil(group)
@@ -1140,11 +1168,10 @@ final class LayoutStoreTests: XCTestCase {
         XCTAssertTrue(store.customizeProviderRows.first { $0.id == "claude" }?.isEnabled ?? false)
     }
 
-    func testCustomizeProviderRowsCarriesMetricAndPinnedCounts() {
+    func testCustomizeProviderRowsCarriesMetricCounts() {
         let store = makeStore("RowCounts")
         for row in store.customizeProviderRows {
             XCTAssertEqual(row.metricCount, MockData.descriptors(for: row.id).count)
-            XCTAssertEqual(row.pinnedCount, store.pinnedCount(forProvider: row.id))
         }
     }
 
@@ -1217,6 +1244,25 @@ final class LayoutStoreTests: XCTestCase {
 
         store.clearShareConfirmation()
         XCTAssertFalse(store.shareConfirmation, "clear hides the pill immediately")
+    }
+
+    /// Move a metric through the same divider-reorder route used by both dashboard and Customize
+    /// drags. Tests use this only when they need to perform that real user action as setup.
+    private func moveMetric(_ descriptorID: String, expanded: Bool, in store: LayoutStore) -> Bool {
+        guard store.expandedMetricIDs.contains(descriptorID) != expanded,
+              let providerID = descriptorID.split(separator: ".", maxSplits: 1).first.map(String.init)
+        else { return false }
+        let dividerID = "\(providerID)::test-expanded-divider"
+        let current = store.metricOrderWithDivider(for: providerID, dividerID: dividerID)
+        guard let reordered = LayoutStore.reordered(current, dragged: descriptorID, target: dividerID) else {
+            return false
+        }
+        return store.applyMetricDividerOrder(
+            reordered,
+            dragged: descriptorID,
+            dividerID: dividerID,
+            in: providerID
+        )
     }
 
     private func makeStore(_ name: String) -> LayoutStore {

@@ -93,7 +93,7 @@ final class CodexAuthStoreTests: XCTestCase {
 }
 
 final class CodexUsageMapperTests: XCTestCase {
-    func testFreshSessionWindowNormalizesOnePercentToUnused() throws {
+    func testFreshSessionWindowPreservesReportedOnePercent() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let body = Data("""
         {
@@ -109,30 +109,7 @@ final class CodexUsageMapperTests: XCTestCase {
         """.utf8)
         let response = HTTPResponse(statusCode: 200, headers: [:], body: body)
         let mapped = try CodexUsageMapper.mapUsageResponse(response, now: now)
-        XCTAssertEqual(progress(mapped.lines, "Session")?.used, 0)
-    }
-
-    func testFreshSessionWindowSurvivesFetchLatency() throws {
-        // Real-world shape: Codex stamps `reset_at` server-side at request time, so by the time the
-        // mapper runs (network latency + the reset-credits round trip) the reset is already a few
-        // seconds short of a full period. The old 1-second tolerance failed here, letting the floored
-        // `used_percent: 1` through — the row then read "99% left" forever on an untouched account.
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let body = Data("""
-        {
-          "rate_limit": {
-            "primary_window": {
-              "used_percent": 1,
-              "limit_window_seconds": 18000,
-              "reset_after_seconds": 18000,
-              "reset_at": \(Int(now.timeIntervalSince1970) + 18000 - 5)
-            }
-          }
-        }
-        """.utf8)
-        let response = HTTPResponse(statusCode: 200, headers: [:], body: body)
-        let mapped = try CodexUsageMapper.mapUsageResponse(response, now: now)
-        XCTAssertEqual(progress(mapped.lines, "Session")?.used, 0)
+        XCTAssertEqual(progress(mapped.lines, "Session")?.used, 1)
     }
 
     func testFreshSessionWindowUsesDefaultPeriodWhenLimitWindowIsMissing() throws {
@@ -153,7 +130,7 @@ final class CodexUsageMapperTests: XCTestCase {
 
         let mapped = try CodexUsageMapper.mapUsageResponse(response, now: now)
 
-        XCTAssertEqual(progress(mapped.lines, "Session")?.used, 0)
+        XCTAssertEqual(progress(mapped.lines, "Session")?.used, 1)
         XCTAssertEqual(progress(mapped.lines, "Session")?.periodDurationMs, CodexUsageMapper.sessionPeriodMs)
     }
 
@@ -669,6 +646,26 @@ final class CodexProviderTests: XCTestCase {
 }
 
 final class CodexUsageClientRefreshTests: XCTestCase {
+    func testRefreshFormEncodesReservedCharactersInRequestBody() async throws {
+        let http = FakeHTTPClient(response: HTTPResponse(
+            statusCode: 200,
+            headers: [:],
+            body: Data(#"{"access_token":"new-token"}"#.utf8)
+        ))
+        let client = CodexUsageClient(http: http)
+
+        _ = try await client.refreshToken("refresh token&=+/?%")
+
+        let request = try XCTUnwrap(http.requests.first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.headers["Content-Type"], "application/x-www-form-urlencoded")
+        XCTAssertEqual(
+            String(data: try XCTUnwrap(request.body), encoding: .utf8),
+            "grant_type=refresh_token&client_id=app_EMoamEEZ73f0CkXaXp7hrann" +
+                "&refresh_token=refresh%20token%26%3D%2B%2F%3F%25"
+        )
+    }
+
     func testRefreshReportsRequestFailureForUnrecognizedErrorBody() async {
         // A 400 carrying a non-OAuth body (an HTML proxy/WAF page) must surface as a request failure,
         // not "Token expired. Run `codex` to log in again." — re-login can't fix a transport/infra error.

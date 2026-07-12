@@ -70,7 +70,7 @@ struct ModelUsageBreakdown: Hashable, Sendable, Codable {
 struct LogUsageScan: Sendable {
     var series: DailyUsageSeries
     var modelUsage: ModelUsageSeries?
-    /// `yyyy-MM-dd` day key → models used that day with no pricing entry (their cost shows as $0).
+    /// `yyyy-MM-dd` day key → models used that day whose usage was left out because no price was available.
     var unknownModelsByDay: [String: Set<String>]
 
     init(series: DailyUsageSeries, modelUsage: ModelUsageSeries? = nil, unknownModelsByDay: [String: Set<String>]) {

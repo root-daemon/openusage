@@ -12,21 +12,23 @@ Tracks your Cursor plan usage using the login from the Cursor app.
 | Auto Usage | Auto-model usage percent |
 | API Usage | API usage percent |
 | Extra Usage | On-demand spend; shown as a meter only when Cursor returns a limit |
-| Plan | Your plan name (optional widget) |
+
+When Cursor reports your plan name, OpenUsage shows it beside the provider name.
 
 ## Where credentials come from
 
 Just be signed into the Cursor app. OpenUsage reads Cursor's local state database (and its keychain entries) for the session tokens; refreshed tokens are persisted back. Nothing extra to install or configure.
 
-## Spend history (temporarily unavailable)
+## Spend history
 
-Cursor's per-day spend tiles (Today / Yesterday / Last 30 Days) and the Usage Trend chart are **turned off for now**. They were built from Cursor's server-side usage export, which has started reporting at least ~12 hours behind real time — so a day's cost and tokens would show up stale or empty (for example, a `$0.00` "Today" while you're actively using Cursor). Rather than show misleading numbers, OpenUsage hides these rows until Cursor's reporting catches up. Everything else (Total / Auto / API usage, Extra Usage, Credits) is live and unaffected.
+Today, Yesterday, Last 30 Days, and Usage Trend come from Cursor's usage export. OpenUsage uses the exported token counts and shared model pricing to estimate the cost locally. Cursor's export may occasionally arrive late, so the newest figures can lag behind current activity. OpenUsage leaves isolated malformed rows out instead of silently counting broken values as zero. A failed download, invalid export schema, or broken CSV structure leaves spend history unavailable for that refresh. Each failure is recorded in the diagnostic log without including the exported usage data.
 
 ## Troubleshooting
 
 - **"Not logged in" / token errors** — open Cursor and make sure you're signed in, then refresh.
 - **Some metrics missing** — Cursor omits fields depending on plan type (e.g. Requests only exists on request-based accounts); missing metrics simply show "No data".
+- **Optional lookup failed** — plan, credit-grant, prepaid-balance, and request-fallback failures stay nonfatal when primary usage is available. OpenUsage records fixed, credential-free reasons in the diagnostic log.
 
 ## Under the hood
 
-Connect RPC on `api2.cursor.sh` (dashboard usage), REST fallback at `cursor.com/api/usage` for request-based accounts, and Stripe balance at `cursor.com/api/auth/stripe`. A 401/403 triggers one token refresh and retry. Per-day spend imputation uses token counts priced through the shared [model pricing](../pricing.md); Cursor-native models (`auto`, `composer-*`, …) come from its supplement layer, which maintainers sync from [Cursor models & pricing](https://cursor.com/docs/models-and-pricing.md). (The usage-events CSV export at `cursor.com/api/dashboard/export-usage-events-csv` previously fed the spend history; it's not currently fetched — see above.)
+Connect RPC on `api2.cursor.sh` (dashboard usage), REST fallback at `cursor.com/api/usage` for request-based accounts, Stripe balance at `cursor.com/api/auth/stripe`, and the usage-events CSV export at `cursor.com/api/dashboard/export-usage-events-csv`. The primary dashboard usage request refreshes the token and retries once after a 401/403; optional endpoint failures stay nonfatal and are recorded in the diagnostic log. Per-day spend imputation uses exported token counts priced through the shared [model pricing](../pricing.md); Cursor-native models (`auto`, `composer-*`, …) come from its supplement layer, which maintainers sync from [Cursor models & pricing](https://cursor.com/docs/models-and-pricing.md).

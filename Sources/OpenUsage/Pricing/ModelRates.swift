@@ -10,7 +10,8 @@ struct ModelRates: Sendable, Equatable {
     var cacheWritePerMillion: Double
     var cacheReadPerMillion: Double
 
-    /// Rates for the token share above 200k tokens, where the provider prices long context higher.
+    /// Rates for requests whose prompt exceeds 200k tokens, where the provider prices the whole
+    /// request at the higher long-context tier.
     var inputAbove200kPerMillion: Double?
     var outputAbove200kPerMillion: Double?
     var cacheWriteAbove200kPerMillion: Double?
@@ -49,6 +50,9 @@ struct TokenBreakdown: Sendable, Equatable {
     /// The request ran the model's "fast" variant (Claude logs carry a `speed` field).
     var isFast: Bool = false
 
+    /// Input that determines whether the request crosses the long-context threshold. Output does not
+    /// select the tier, but it is billed at the selected tier once the prompt crosses the threshold.
+    var promptTokens: Int { input + cacheWrite5m + cacheWrite1h + cacheRead }
     var totalTokens: Int { input + cacheWrite5m + cacheWrite1h + cacheRead + output }
 }
 
@@ -57,27 +61,38 @@ extension ModelRates {
     /// explicit `above_1hr` fields where present).
     private static let cacheWrite1hInputMultiplier = 2.0
 
-    /// Dollar cost of `tokens` at these rates, applying >200k tiers and the fast multiplier.
-    func costDollars(for tokens: TokenBreakdown) -> Double {
+    /// Dollar cost of one request at these rates, applying the request-wide >200k tier and the fast
+    /// multiplier. Aggregated sources can opt out when their totals do not preserve request boundaries.
+    func costDollars(for tokens: TokenBreakdown, applyLongContextRates: Bool = true) -> Double {
         let multiplier = tokens.isFast ? fastMultiplier : 1
-        let cost = tieredCost(tokens.input, inputPerMillion, inputAbove200kPerMillion)
-            + tieredCost(tokens.output, outputPerMillion, outputAbove200kPerMillion)
-            + tieredCost(tokens.cacheWrite5m, cacheWritePerMillion, cacheWriteAbove200kPerMillion)
-            + tieredCost(
-                tokens.cacheWrite1h,
-                inputPerMillion * Self.cacheWrite1hInputMultiplier,
-                inputAbove200kPerMillion.map { $0 * Self.cacheWrite1hInputMultiplier }
-            )
-            + tieredCost(tokens.cacheRead, cacheReadPerMillion, cacheReadAbove200kPerMillion)
+        let useLongContextRates = applyLongContextRates && tokens.promptTokens > 200_000
+        let inputRate = selectedRate(base: inputPerMillion, longContext: inputAbove200kPerMillion,
+                                     useLongContextRates: useLongContextRates)
+        let outputRate = selectedRate(base: outputPerMillion, longContext: outputAbove200kPerMillion,
+                                      useLongContextRates: useLongContextRates)
+        let cacheWriteRate = selectedRate(base: cacheWritePerMillion, longContext: cacheWriteAbove200kPerMillion,
+                                          useLongContextRates: useLongContextRates)
+        let cacheReadRate = selectedRate(base: cacheReadPerMillion, longContext: cacheReadAbove200kPerMillion,
+                                         useLongContextRates: useLongContextRates)
+        let cacheWrite1hRate = selectedRate(
+            base: inputPerMillion,
+            longContext: inputAbove200kPerMillion,
+            useLongContextRates: useLongContextRates
+        ) * Self.cacheWrite1hInputMultiplier
+
+        let cost = cost(tokens.input, at: inputRate)
+            + cost(tokens.output, at: outputRate)
+            + cost(tokens.cacheWrite5m, at: cacheWriteRate)
+            + cost(tokens.cacheWrite1h, at: cacheWrite1hRate)
+            + cost(tokens.cacheRead, at: cacheReadRate)
         return cost * multiplier
     }
 
-    private func tieredCost(_ tokens: Int, _ basePerMillion: Double, _ abovePerMillion: Double?) -> Double {
-        let threshold = 200_000
-        guard tokens > 0 else { return 0 }
-        if let abovePerMillion, tokens > threshold {
-            return (Double(threshold) * basePerMillion + Double(tokens - threshold) * abovePerMillion) / 1_000_000
-        }
-        return Double(tokens) * basePerMillion / 1_000_000
+    private func selectedRate(base: Double, longContext: Double?, useLongContextRates: Bool) -> Double {
+        useLongContextRates ? (longContext ?? base) : base
+    }
+
+    private func cost(_ tokens: Int, at ratePerMillion: Double) -> Double {
+        Double(tokens) * ratePerMillion / 1_000_000
     }
 }

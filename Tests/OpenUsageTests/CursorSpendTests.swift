@@ -4,49 +4,76 @@ import XCTest
 // MARK: - CSV parser
 
 final class CursorCSVParserTests: XCTestCase {
-    func testParsesQuotedCommasEscapedQuotesAndEmbeddedNewlines() {
-        let csv = """
-        Date,Model,Note
-        2026-01-01T00:00:00Z,"composer-1","a, b ""quoted"" c"
-        2026-01-02T00:00:00Z,composer-1,"line one
-        line two"
-        """
+    func testParsesQuotedCommasEscapedQuotesEmbeddedNewlinesAndCRLF() {
+        let csv = "Date,Model,Note\r\n"
+            + "2026-01-01T00:00:00Z,\"composer-1\",\"a, b \"\"quoted\"\" c\"\r\n"
+            + "2026-01-02T00:00:00Z,composer-1,\"line one\r\nline two\"\r\n"
         var records: [[String: String]] = []
-        CursorCSVParser.forEachRecord(in: csv) { records.append($0) }
 
+        let summary = CursorCSVParser.forEachRecord(in: csv) { records.append($0) }
+
+        XCTAssertTrue(summary.isStructurallyComplete)
+        XCTAssertEqual(summary.rejectedRecordCount, 0)
         XCTAssertEqual(records.count, 2)
+        guard records.count == 2 else { return }
         XCTAssertEqual(records[0]["Note"], #"a, b "quoted" c"#)
-        XCTAssertEqual(records[1]["Note"], "line one\nline two")
+        XCTAssertEqual(records[1]["Note"], "line one\r\nline two")
         XCTAssertEqual(records[1]["Model"], "composer-1")
     }
 
     func testParsesTrailingPartialRowWithoutNewline() {
         let csv = "Date,Model\n2026-01-01T00:00:00Z,composer-1"
         var records: [[String: String]] = []
-        CursorCSVParser.forEachRecord(in: csv) { records.append($0) }
 
+        let summary = CursorCSVParser.forEachRecord(in: csv) { records.append($0) }
+
+        XCTAssertTrue(summary.isStructurallyComplete)
         XCTAssertEqual(records.count, 1)
         XCTAssertEqual(records[0]["Date"], "2026-01-01T00:00:00Z")
         XCTAssertEqual(records[0]["Model"], "composer-1")
     }
 
-    func testUsageCSVMapsColumnsToPricedRows() {
+    func testUsageCSVMapsColumnsToPricedRows() throws {
         let csv = """
         Date,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Cost
         2026-01-01T00:00:00Z,composer-1,No,0,0,0,1000000,Included
         2026-01-01T00:00:00Z,totally-unknown-model-xyz,No,0,100,0,0,Included
         ,skipped-no-date,No,0,0,0,0,Included
         """
-        let rows = CursorUsageCSV.parse(csv: csv, pricing: TestPricing.bundled)
+        let parsed = try CursorUsageCSV.parse(csv: csv, pricing: TestPricing.bundled)
 
-        XCTAssertEqual(rows.count, 2) // the dateless row is skipped
-        XCTAssertEqual(rows[0].model, "composer-1")
-        XCTAssertEqual(rows[0].tokens.output, 1_000_000)
-        // composer-1 output is $10/M → 1M output = $10.
-        XCTAssertEqual(rows[0].imputedCostDollars!, 10.0, accuracy: 1e-9)
-        // No pricing source knows the second model: tokens counted, cost nil (flags the day incomplete).
-        XCTAssertEqual(rows[1].tokens.totalTokens, 100)
-        XCTAssertNil(rows[1].imputedCostDollars)
+        XCTAssertEqual(parsed.rows.count, 2)
+        XCTAssertEqual(parsed.rejectedRowCount, 1)
+        XCTAssertEqual(parsed.rows[0].model, "composer-1")
+        XCTAssertEqual(parsed.rows[0].tokens.output, 1_000_000)
+        XCTAssertEqual(parsed.rows[0].imputedCostDollars!, 10.0, accuracy: 1e-9)
+        XCTAssertEqual(parsed.rows[1].tokens.totalTokens, 100)
+        XCTAssertNil(parsed.rows[1].imputedCostDollars)
+    }
+
+    func testUsageCSVDoesNotTreatAggregatedRowsAsSingleLongContextRequests() throws {
+        var rates = ModelRates(
+            inputPerMillion: 3,
+            outputPerMillion: 15,
+            cacheWritePerMillion: 3.75,
+            cacheReadPerMillion: 0.3
+        )
+        rates.inputAbove200kPerMillion = 6
+        rates.outputAbove200kPerMillion = 22.5
+        let pricing = ModelPricing(
+            supplement: PricingSupplement(),
+            primary: PricingCatalog(entries: ["test-model": rates]),
+            secondary: PricingCatalog()
+        )
+        let csv = """
+        Date,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Cost
+        2026-01-01T00:00:00Z,test-model,No,0,300000,0,100000,Included
+        """
+
+        let row = try XCTUnwrap(CursorUsageCSV.parse(csv: csv, pricing: pricing).rows.first)
+
+        // A CSV row combines many requests, so its total cannot prove that any one request crossed 200k.
+        XCTAssertEqual(row.imputedCostDollars!, 2.4, accuracy: 0.0001)
     }
 }
 
@@ -69,11 +96,11 @@ final class CursorSpendRangeTests: XCTestCase {
         var lines: [MetricLine] = []
         CursorUsageMapper.appendSpendLines(rows: rows, now: now, pricing: TestPricing.bundled, to: &lines)
 
-        // Combined cost + tokens, server-priced so the dollar value is not marked estimated.
-        XCTAssertEqual(values(lines, "Today"), [MetricValue(number: 1.00, kind: .dollars), MetricValue(number: 100, kind: .count, label: "tokens")])
-        XCTAssertEqual(values(lines, "Yesterday"), [MetricValue(number: 2.00, kind: .dollars), MetricValue(number: 200, kind: .count, label: "tokens")])
+        // Tokens come from Cursor; dollars are calculated locally and marked as estimated.
+        XCTAssertEqual(values(lines, "Today"), [MetricValue(number: 1.00, kind: .dollars, estimated: true), MetricValue(number: 100, kind: .count, label: "tokens")])
+        XCTAssertEqual(values(lines, "Yesterday"), [MetricValue(number: 2.00, kind: .dollars, estimated: true), MetricValue(number: 200, kind: .count, label: "tokens")])
         // Last 30 Days sums every fetched day (the provider scopes the CSV to a 30-day window).
-        XCTAssertEqual(values(lines, "Last 30 Days"), [MetricValue(number: 8.50, kind: .dollars), MetricValue(number: 1349, kind: .count, label: "tokens")])
+        XCTAssertEqual(values(lines, "Last 30 Days"), [MetricValue(number: 8.50, kind: .dollars, estimated: true), MetricValue(number: 1349, kind: .count, label: "tokens")])
     }
 
     func testZeroActivityLeavesTilesUnbacked() {
@@ -103,7 +130,7 @@ final class CursorSpendRangeTests: XCTestCase {
             return XCTFail("expected a Usage Trend chart line")
         }
         XCTAssertEqual(label, "Usage Trend")
-        // Cursor's tokens come from the server-priced CSV, so the note names that source, not local logs.
+        // Cursor's tokens come from its server export, so the note names that source, not local logs.
         XCTAssertEqual(note, "From your Cursor usage export")
         XCTAssertEqual(points.count, 31, "one bar per calendar day across the 31-day window")
         XCTAssertEqual(points.last?.value, 100, "today's tokens land on the last bar")
@@ -170,7 +197,7 @@ final class CursorSpendRangeTests: XCTestCase {
         // The unpriced row is excluded from the tile's tokens and the breakdown alike — it surfaces
         // only through the unknown-model warning.
         XCTAssertEqual(values(lines, "Today"),
-                       [MetricValue(number: 3.01, kind: .dollars), MetricValue(number: 300, kind: .count, label: "tokens")])
+                       [MetricValue(number: 3.01, kind: .dollars, estimated: true), MetricValue(number: 300, kind: .count, label: "tokens")])
         XCTAssertEqual(unknown(lines, "Today"), ["unpriced-cursor-model"])
         let breakdown = try XCTUnwrap(modelBreakdown(lines, "Today"))
         XCTAssertEqual(breakdown.sourceNote, "From your Cursor usage export")
@@ -256,13 +283,11 @@ final class CursorSpendRangeTests: XCTestCase {
 
 @MainActor
 final class CursorSpendProviderTests: XCTestCase {
-    func testSpendTrackingEnabledDownloadsCSVExposesSpendTilesAndFlagsUnknownModels() async {
-        // Spend tracking is back on (issue #758): the provider downloads the usage CSV, exposes the
-        // spend-tile + trend descriptors, and emits Today / Yesterday / Last 30 Days / Usage Trend lines
+    func testSpendTrackingDownloadsCSVExposesSpendTilesAndFlagsUnknownModels() async {
+        // The provider downloads the usage CSV, exposes the spend-tile + trend descriptors, and emits
+        // Today / Yesterday / Last 30 Days / Usage Trend lines
         // alongside the live quota meters. A row that used a model no pricing source can price carries
         // that model's name so the tile can warn its cost is incomplete.
-        XCTAssertTrue(CursorProvider.spendTrackingEnabled, "this regression guards the enabled state")
-
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let iso = ISO8601DateFormatter()
         let todayStr = iso.string(from: now)
@@ -311,7 +336,7 @@ final class CursorSpendProviderTests: XCTestCase {
         let snapshot = await provider.refresh()
 
         XCTAssertTrue(http.requests.contains { $0.url.absoluteString.contains("export-usage-events-csv") },
-                      "spend tracking is enabled — Cursor must download the usage CSV")
+                      "Cursor refresh must download the usage CSV for spend metrics")
         // Live quota meter survives; spend tiles + trend are present.
         XCTAssertTrue(snapshot.lines.contains { $0.label == "Total usage" })
         for label in ["Today", "Yesterday", "Last 30 Days", "Usage Trend"] {
@@ -335,9 +360,7 @@ final class CursorSpendProviderTests: XCTestCase {
 
     func testSpendTileRendersCombinedCostAndTokensWithValueTooltip() async {
         let cursor = CursorProvider()
-        // Spend tiles are gated off the live provider (issue #758), so source the descriptor from the
-        // shared factory — this keeps the combined "cost · tokens" render shape covered for re-enable.
-        let descriptor = try! XCTUnwrap(WidgetDescriptor.spendTiles(provider: cursor.provider).first { $0.id == "cursor.today" })
+        let descriptor = try! XCTUnwrap(cursor.widgetDescriptors.first { $0.id == "cursor.today" })
 
         // The combined tile joins the dollar and the labeled token count. The render shape for a zero
         // line is still "$0.00 · 0 tokens" — the mapper no longer produces these (an idle period is left
@@ -355,7 +378,7 @@ final class CursorSpendProviderTests: XCTestCase {
                     providerID: cursor.provider.id,
                     displayName: cursor.provider.displayName,
                     lines: [.values(label: "Today", values: [
-                        MetricValue(number: dollars, kind: .dollars),
+                        MetricValue(number: dollars, kind: .dollars, estimated: true),
                         MetricValue(number: Double(tokens), kind: .count, label: "tokens")
                     ])]
                 )
@@ -377,8 +400,7 @@ final class CursorSpendProviderTests: XCTestCase {
             XCTAssertTrue(remaining.hasData)
             XCTAssertEqual(remaining.valueText, expectedValue)
             XCTAssertEqual(remaining.unboundedDetail, expectedDetail)
-            // Cursor spend is server-priced, so the combined tile carries no local-estimate note.
-            XCTAssertNil(remaining.infoNote)
+            XCTAssertEqual(remaining.infoNote, WidgetData.localEstimateNote)
             // Unbounded: identical under both meter styles.
             XCTAssertEqual(used.valueText, remaining.valueText)
             XCTAssertEqual(used.unboundedDetail, remaining.unboundedDetail)
@@ -403,11 +425,9 @@ final class CursorSpendProviderTests: XCTestCase {
 // MARK: - Client request contract
 
 final class CursorUsageClientRequestTests: XCTestCase {
-    // The provider-level CSV integration tests were removed when spend tracking was disabled (issue
-    // #758), but `CursorUsageClient.fetchUsageCSV` is kept intact for re-enable. Pin its request contract
-    // directly at the client level — endpoint, epoch-ms range, `strategy=tokens`, the session cookie, and
-    // `Accept: text/csv` — so a silent regression in URL/header construction can't slip through while the
-    // feature is off (this test runs regardless of `CursorProvider.spendTrackingEnabled`).
+    // Pin the request contract directly at the client level — endpoint, epoch-ms range,
+    // `strategy=tokens`, the session cookie, and `Accept: text/csv` — so a silent regression in
+    // URL/header construction cannot slip through.
     func testFetchUsageCSVBuildsTokenStrategyRequestWithSessionCookie() async throws {
         let accessToken = makeCursorJWT(sub: "google-oauth2|user_abc123")
         let http = RoutingHTTPClient { _ in

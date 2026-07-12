@@ -97,8 +97,6 @@ extension View {
 }
 
 private struct PartyPulseModifier: ViewModifier {
-    @Environment(\.popoverIsVisible) private var shown
-
     func body(content: Content) -> some View {
         // Clock mounts only while the popover is on-screen (see `VisibilityGatedTimeline`); the pulse
         // starts immediately on reopen / in-place activation and costs nothing when the popover is closed.

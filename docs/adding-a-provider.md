@@ -38,10 +38,11 @@ of the number, not by the provider:
   dollars *and* tokens, Codex credits carry dollars *and* a count. The widget picks which to show
   (cost-only, tokens-only, or both) via its descriptor, and formatting happens at the display edge, so the
   menu bar never re-parses a string. Prefer this for numbers.
-- **`.text`** — a value shown as-is, like `$12.34 spent`. Use it only for genuinely string-y rows, or a
-  capped dollar amount whose limit lives on the descriptor.
 - **`.badge`** — a short status pill, like `Disabled` or a pay-as-you-go cap. Use it for state rather than
   a fillable number.
+- **`.chart`** — dated numeric points for a compact usage-trend row.
+- **`.text`** — a string-valued provider notice preserved in the local API. It does not render a widget;
+  use `.progress`, `.values`, `.badge`, or `.chart` for every descriptor-backed row.
 
 Set the snapshot's `plan` when the provider exposes a plan name. On failure, return
 `ProviderSnapshot.error(provider:error:)` with a typed provider error when possible, so telemetry can group
@@ -54,10 +55,10 @@ factory only when there is no typed error, and never return stale or empty data 
    or in progress.
 2. **Create the module.** Add `Sources/OpenUsage/Providers/<Name>/` with the auth store, usage client, and
    mapper, conforming to `ProviderRuntime` — both `refresh()` and `hasLocalCredentials()` (the compiler
-   enforces the latter; there is no default). Implement `hasLocalCredentials()` as a null-check on the
-   same auth-store load `refresh()` starts with — don't write a second credential-reading path. Reuse the
-   shared helpers in `Support/` (`ProviderParse` for JSON/number/percent parsing, `OpenUsageISO8601` for
-   timestamps) instead of copying them.
+   enforces the latter; there is no default). The probe must stay local-only and reuse the same auth-store
+   loaders and credential-usability filters that `refresh()` starts with — don't write a second
+   credential-reading path. Reuse the shared helpers in `Support/` (`ProviderParse` for
+   JSON/number/percent parsing, `OpenUsageISO8601` for timestamps) instead of copying them.
 3. **Declare its widgets.** Expose the provider's metrics as `WidgetDescriptor`s using the factories in
    `WidgetDescriptor+Factories.swift` (`percent`, `boundedDollars`, `spend`, `tokenSpend`, `combined`, `values`, `badge`, and so on).
 4. **Register it.** Add the provider to the list in `AppContainer`.

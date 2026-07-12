@@ -84,16 +84,16 @@ enum MetricLine: Hashable, Sendable, Codable {
     /// An unbounded row carrying one or more raw numbers (see `MetricValue`) — the preferred shape for
     /// numeric rows. The number is the source of truth; formatting and which value(s) to show happen at
     /// the display edge, so the menu bar never has to re-parse a finished string. `.text` stays only for
-    /// genuinely string-y rows and a few descriptor-bounded dollar rows.
+    /// genuinely string-valued provider notices exposed through the local API; widgets do not parse it.
     ///
     /// `expiriesAt` carries zero or more future expiry instants the row surfaces in its hover tooltip —
     /// used for the Codex rate-limit-reset-credits row ("2 available", with each credit's expiry listed
     /// on hover). Carried as raw `Date`s (not baked strings) so they count down on the popover's clock
     /// tick and honor the global relative/absolute reset mode, like a bounded row's reset countdown.
     ///
-    /// `unknownModels` carries the names of models this period's spend used that the bundled pricing
-    /// manifest doesn't know. Their tokens are counted but their cost is incomplete, so the row shows a
-    /// warning triangle listing them on hover. `modelBreakdown` carries the period-scoped ranked model
+    /// `unknownModels` carries the names of models this period's spend used that the pricing sources
+    /// don't know. Their usage is left out of the displayed total, so the row shows a warning triangle
+    /// listing them on hover. `modelBreakdown` carries the period-scoped ranked model
     /// list for spend rows; it is internal UI data, not part of the local HTTP API wire shape.
     case values(
         label: String,
@@ -262,4 +262,3 @@ enum MetricLine: Hashable, Sendable, Codable {
         }
     }
 }
-

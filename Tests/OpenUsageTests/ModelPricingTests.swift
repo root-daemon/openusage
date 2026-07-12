@@ -89,7 +89,6 @@ final class ModelPricingTests: XCTestCase {
     func testUnknownModelReturnsNil() throws {
         let pricing = try makePricing(primary: ["gpt-5.5": rates(5, 30)])
         XCTAssertNil(pricing.resolve(model: "made-up-model-9000"))
-        XCTAssertFalse(pricing.canPrice(model: "made-up-model-9000"))
     }
 
     // MARK: - Supplement precedence, aliases, fast multipliers
@@ -139,10 +138,17 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(fast?.fastMultiplier, 1, "multiplier folded into the scaled rates")
     }
 
-    func testFastSuffixWithoutMultiplierFallsBackToBaseRate() throws {
-        // ccusage parity: unknown fast variants price at the base rate via fuzzy matching.
+    func testFastSuffixWithoutMultiplierReturnsNil() throws {
         let pricing = try makePricing(primary: ["gpt-9": rates(1, 2)])
-        XCTAssertEqual(pricing.resolve(model: "gpt-9-fast")?.inputPerMillion, 1)
+        XCTAssertNil(pricing.resolve(model: "gpt-9-fast"))
+    }
+
+    func testFastSuffixWithoutMultiplierUsesSecondaryExactEntry() throws {
+        let pricing = try makePricing(
+            primary: ["gpt-9": rates(1, 2)],
+            secondary: ["gpt-9-fast": rates(2.5, 5)]
+        )
+        XCTAssertEqual(pricing.resolve(model: "gpt-9-fast")?.inputPerMillion, 2.5)
     }
 
     func testDatedBaseKeyStillFindsFastMultiplier() throws {
@@ -166,13 +172,46 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(pricing.estimatedCostDollars(model: "claude-sonnet-4-5", tokens: tokens)!, 28.05, accuracy: 0.0001)
     }
 
-    func testCostAbove200kUsesTieredRates() throws {
+    func testCostAbove200kUsesHigherRateForWholeRequest() throws {
         var entry = ModelRates(inputPerMillion: 3, outputPerMillion: 15, cacheWritePerMillion: 3.75, cacheReadPerMillion: 0.3)
         entry.inputAbove200kPerMillion = 6
         let pricing = try makePricing(primary: ["claude-sonnet-4-5": entry])
         let tokens = TokenBreakdown(input: 300_000)
-        // 200k at $3/M + 100k at $6/M = 0.6 + 0.6 = 1.2
-        XCTAssertEqual(pricing.estimatedCostDollars(model: "claude-sonnet-4-5", tokens: tokens)!, 1.2, accuracy: 0.0001)
+        XCTAssertEqual(pricing.estimatedCostDollars(model: "claude-sonnet-4-5", tokens: tokens)!, 1.8, accuracy: 0.0001)
+    }
+
+    func testCombinedPromptBucketsSelectLongContextRatesForEveryBucket() throws {
+        var entry = ModelRates(inputPerMillion: 3, outputPerMillion: 15, cacheWritePerMillion: 3.75, cacheReadPerMillion: 0.3)
+        entry.inputAbove200kPerMillion = 6
+        entry.outputAbove200kPerMillion = 22.5
+        entry.cacheWriteAbove200kPerMillion = 7.5
+        entry.cacheReadAbove200kPerMillion = 0.6
+        let pricing = try makePricing(primary: ["claude-sonnet-4-5": entry])
+        let tokens = TokenBreakdown(input: 100_000, cacheWrite5m: 60_000, cacheRead: 50_000, output: 20_000)
+
+        // The 210k prompt selects the higher tier for input, cache, and output alike.
+        let expected = 0.6 + 0.45 + 0.03 + 0.45
+        XCTAssertEqual(pricing.estimatedCostDollars(model: "claude-sonnet-4-5", tokens: tokens)!, expected, accuracy: 0.0001)
+    }
+
+    func testLargeOutputAloneDoesNotSelectLongContextRates() throws {
+        var entry = ModelRates(inputPerMillion: 3, outputPerMillion: 15, cacheWritePerMillion: 3.75, cacheReadPerMillion: 0.3)
+        entry.inputAbove200kPerMillion = 6
+        entry.outputAbove200kPerMillion = 22.5
+        let pricing = try makePricing(primary: ["claude-sonnet-4-5": entry])
+        let tokens = TokenBreakdown(input: 10_000, output: 300_000)
+
+        XCTAssertEqual(pricing.estimatedCostDollars(model: "claude-sonnet-4-5", tokens: tokens)!, 4.53, accuracy: 0.0001)
+    }
+
+    func testExactly200kPromptKeepsBaseRates() throws {
+        var entry = ModelRates(inputPerMillion: 3, outputPerMillion: 15, cacheWritePerMillion: 3.75, cacheReadPerMillion: 0.3)
+        entry.inputAbove200kPerMillion = 6
+        entry.outputAbove200kPerMillion = 22.5
+        let pricing = try makePricing(primary: ["claude-sonnet-4-5": entry])
+        let tokens = TokenBreakdown(input: 200_000, output: 10_000)
+
+        XCTAssertEqual(pricing.estimatedCostDollars(model: "claude-sonnet-4-5", tokens: tokens)!, 0.75, accuracy: 0.0001)
     }
 
     func testCostWithoutTierRatesUsesBaseRateThroughout() throws {

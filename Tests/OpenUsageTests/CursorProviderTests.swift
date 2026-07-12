@@ -165,6 +165,26 @@ final class CursorUsageMapperTests: XCTestCase {
         XCTAssertEqual(total.limit, 400, accuracy: 0.001)   // of a $400.00 limit
         XCTAssertFalse(mapped.lines.contains { $0.label == "Bonus spend" })
     }
+
+    func testTeamBooleanTotalSpendFallsBackToLimitMinusRemaining() throws {
+        let mapped = try CursorUsageMapper.mapUsage(
+            usage: [
+                "enabled": true,
+                "planUsage": [
+                    "limit": 40_000,
+                    "remaining": 32_000,
+                    "totalSpend": true
+                ]
+            ],
+            planName: "Team",
+            creditGrants: nil,
+            stripeBalanceCents: 0
+        )
+
+        let total = try XCTUnwrap(progress(mapped.lines, "Total usage"))
+        XCTAssertEqual(total.used, 80, accuracy: 0.001)
+        XCTAssertEqual(total.limit, 400, accuracy: 0.001)
+    }
 }
 
 @MainActor

@@ -10,7 +10,7 @@ interface hosted inside an AppKit status item and panel. The code is grouped by 
 
 - `App/` — startup and the AppKit bridge (status item, panel, the app entry point).
 - `Models/` — the small value types the rest of the app speaks in (`MetricLine`, `WidgetData`, descriptors).
-- `Providers/` — one folder per provider (Claude, Codex, Cursor, Devin, Grok).
+- `Providers/` — one folder per provider (Claude, Codex, Cursor, Devin, Grok, OpenCode, …).
 - `Stores/` — the mutable state the UI observes.
 - `Services/` — shared infrastructure (HTTP, the local API, process running).
 - `Support/` — small shared helpers (formatting, parsing, animations).
@@ -31,7 +31,8 @@ Each provider is a small module that conforms to `ProviderRuntime`. A refresh fl
    never asks the user to paste tokens.
 2. **Usage client** — makes the HTTP calls to the provider's API.
 3. **Mapper** — turns the provider's response into the app's own vocabulary: a `ProviderSnapshot`
-   containing `MetricLine` values (`.progress`, `.text`, `.badge`).
+   containing typed widget values (`.progress`, `.values`, `.badge`, `.chart`) plus `.text` notices that
+   remain available through the local API but do not render as widgets.
 
 Because every provider produces the same normalized `MetricLine` shapes, the UI renders them all the same
 way and doesn't need to know provider-specific details. To add one, see

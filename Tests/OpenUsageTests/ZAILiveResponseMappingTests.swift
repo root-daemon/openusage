@@ -20,7 +20,7 @@ final class ZAILiveResponseMappingTests: XCTestCase {
     """#
 
     func testMapsLiveResponseToSessionWeeklyAndWebSearches() throws {
-        let mapped = ZAIUsageMapper.map(
+        let mapped = try ZAIUsageMapper.map(
             quotaBody: Data(liveQuota.utf8),
             subscriptionBody: Data(liveSubscription.utf8)
         )

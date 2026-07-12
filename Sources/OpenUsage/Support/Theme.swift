@@ -70,18 +70,17 @@ extension View {
     /// The grouped-card surface used for provider/settings cards, in the shared rounded shape: the
     /// bright page base lifted by the system's `.fill.quaternary` (the System Settings grouped-box
     /// look), borderless — the subtle fill carries the grouping the way Settings does, in both light
-    /// and dark. Drawing the opaque page base first keeps a lifted drag preview solid while it floats.
-    /// `lifted` is accepted for call-site symmetry; live and lifted cards share one surface (the lift's
-    /// depth comes from `ReorderLiftPreview`'s shadow, not a different fill).
-    func cardSurface(lifted: Bool = false) -> some View {
-        modifier(CardSurfaceModifier(lifted: lifted))
+    /// and dark. Drawing the opaque page base first keeps a lifted drag preview solid while it floats;
+    /// the preview's depth comes from `ReorderLiftPreview`'s shadow, not a different card surface.
+    func cardSurface() -> some View {
+        modifier(CardSurfaceModifier())
     }
 
     /// A single-row lifted preview surface: the card surface plus a thin separator hairline that fences
     /// a free-floating one-row chip off from the rows beneath it (the multi-row provider previews don't
     /// take the hairline — their shadow alone reads as detached).
     func liftedRowSurface() -> some View {
-        cardSurface(lifted: true)
+        cardSurface()
             .overlay { Theme.cardShape.strokeBorder(.separator, lineWidth: 0.5) }
     }
 
@@ -98,13 +97,12 @@ extension View {
 /// system's `.fill.quaternary` composited on top — borderless, matching the macOS System Settings
 /// grouped box in both light and dark. The opaque base means a lifted drag preview stays solid while
 /// it floats; the page base under a live card is the same color as the tray behind it, so it's
-/// invisible there. `lifted` is unused — both paths share the one surface.
+/// invisible there. Live cards and drag previews share the same surface.
 ///
 /// Under the translucent surface treatment (Increase Transparency / the secret-code egg) the opaque page base
 /// is dropped so the behind-window vibrancy backdrop shows through, while the system grouped fill stays
 /// so cards still read as grouped boxes over the desktop.
 private struct CardSurfaceModifier: ViewModifier {
-    let lifted: Bool
     @Environment(\.popoverSurfaceTreatment) private var treatment
 
     func body(content: Content) -> some View {

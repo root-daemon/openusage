@@ -19,9 +19,9 @@ enum ZAIUsageMapper {
     /// `(plan, lines)` from the quota + subscription payloads. `subscription` may be `nil` (the
     /// request is best-effort) and the quota's `limits` array may carry one to three entries — only
     /// what's present is mapped, so a plan without web searches still shows the session meter.
-    static func map(quotaBody: Data, subscriptionBody: Data?) -> (plan: String?, lines: [MetricLine]) {
+    static func map(quotaBody: Data, subscriptionBody: Data?) throws -> (plan: String?, lines: [MetricLine]) {
         let plan = subscriptionBody.flatMap { planName(from: $0) }
-        let lines = mapQuota(quotaBody)
+        let lines = try mapQuota(quotaBody)
         return (plan, lines)
     }
 
@@ -36,37 +36,53 @@ enum ZAIUsageMapper {
         return ((root["msg"] as? String) ?? "").lowercased().contains("coding plan")
     }
 
-    /// Session + weekly + web-search meters from the quota payload. Emits the "No usage data"
-    /// placeholder when the payload carries no usable limits, matching the legacy plugin.
-    static func mapQuota(_ body: Data) -> [MetricLine] {
-        guard let root = ProviderParse.jsonObject(body) else { return [.noUsageData] }
+    /// Session + weekly + web-search meters from the quota payload. Missing required values are an
+    /// invalid response rather than zero usage; an explicit empty array remains a valid no-data state.
+    static func mapQuota(_ body: Data) throws -> [MetricLine] {
+        guard let root = ProviderParse.jsonObject(body) else {
+            throw ZAIUsageError.invalidResponse
+        }
         // The limits array lives under `data.limits`; the legacy plugin also tolerated the root object
         // being the container directly (no `data` wrapper), so honor both.
-        let container = root["data"] as? [String: Any] ?? root
-        guard let limits = container["limits"] as? [[String: Any]], !limits.isEmpty else {
+        let container: [String: Any]
+        if let data = root["data"] {
+            guard let data = data as? [String: Any] else { throw ZAIUsageError.invalidResponse }
+            container = data
+        } else {
+            container = root
+        }
+        guard let limits = container["limits"] as? [[String: Any]] else {
+            throw ZAIUsageError.invalidResponse
+        }
+        guard !limits.isEmpty else {
             return [.noUsageData]
         }
 
         var lines: [MetricLine] = []
+        var sawRecognizedLimit = false
 
         // Split the TOKENS_LIMIT entries by window length: a sub-daily window is the session meter,
         // a multi-day window is the weekly meter. Z.ai reports both, and both are percentage meters.
         let tokenLimits = limits.filter { ($0["type"] as? String) == "TOKENS_LIMIT" || ($0["name"] as? String) == "TOKENS_LIMIT" }
         for entry in tokenLimits {
-            switch classifyTokenWindow(entry) {
+            guard let window = try classifyTokenWindow(entry) else { continue }
+            sawRecognizedLimit = true
+            switch window {
             case .session(let periodMs):
-                lines.append(percentLine(entry, label: "Session", periodMs: periodMs))
+                lines.append(try percentLine(entry, label: "Session", periodMs: periodMs))
             case .weekly(let periodMs):
-                lines.append(percentLine(entry, label: "Weekly", periodMs: periodMs))
-            case .unknown:
-                continue
+                lines.append(try percentLine(entry, label: "Weekly", periodMs: periodMs))
             }
         }
         if let web = findLimit(limits, type: "TIME_LIMIT") {
-            lines.append(webSearchLine(from: web))
+            sawRecognizedLimit = true
+            lines.append(try webSearchLine(from: web))
         }
 
-        MetricLine.appendNoDataIfNeeded(&lines)
+        guard !lines.isEmpty else {
+            if sawRecognizedLimit { throw ZAIUsageError.invalidResponse }
+            return [.noUsageData]
+        }
         return lines
     }
 
@@ -86,16 +102,32 @@ enum ZAIUsageMapper {
 
     /// How a `TOKENS_LIMIT` entry's window maps to a meter. Z.ai encodes the window as a `(unit, number)`
     /// pair: `unit: 3` is hours (session), `unit: 6` is weeks (weekly), `unit: 5` is months. A sub-daily
-    /// window is the session meter; a multi-day window is the weekly meter; anything unrecognized is
-    /// skipped so a future unit value can't silently overwrite a known meter.
+    /// window is the session meter; a multi-day window is the weekly meter. Unknown units are ignored
+    /// so a future Z.ai window cannot hide meters whose units OpenUsage still understands.
     private enum TokenWindow {
         case session(periodMs: Int)
         case weekly(periodMs: Int)
-        case unknown
     }
 
-    private static func classifyTokenWindow(_ entry: [String: Any]) -> TokenWindow {
-        guard let periodMs = periodDurationMs(for: entry) else { return .unknown }
+    private static func classifyTokenWindow(_ entry: [String: Any]) throws -> TokenWindow? {
+        guard let unit = ProviderParse.number(entry["unit"]),
+              let number = ProviderParse.number(entry["number"]),
+              number > 0 else {
+            throw ZAIUsageError.invalidResponse
+        }
+        let unitMs: Double
+        switch unit {
+        case 3: unitMs = 60 * 60 * 1000
+        case 4: unitMs = 24 * 60 * 60 * 1000
+        case 6: unitMs = 7 * 24 * 60 * 60 * 1000
+        case 5: unitMs = 30 * 24 * 60 * 60 * 1000
+        default: return nil
+        }
+        let duration = unitMs * number
+        guard duration >= 1, duration < Double(Int.max) else {
+            throw ZAIUsageError.invalidResponse
+        }
+        let periodMs = Int(duration)
         // Sub-daily → session; multi-day → weekly. The computed window rides along so the meter's
         // cadence reflects the payload instead of a hardcoded constant.
         if periodMs < 24 * 60 * 60 * 1000 {
@@ -104,26 +136,12 @@ enum ZAIUsageMapper {
         return .weekly(periodMs: periodMs)
     }
 
-    /// Resolve a `(unit, number)` window to milliseconds. `unit` is Z.ai's internal time-unit code.
-    private static func periodDurationMs(for entry: [String: Any]) -> Int? {
-        guard let unit = ProviderParse.number(entry["unit"]),
-              let number = ProviderParse.number(entry["number"]) else {
-            return nil
-        }
-        let unitMs: Double
-        switch unit {
-        case 3: unitMs = 60 * 60 * 1000           // hours
-        case 4: unitMs = 24 * 60 * 60 * 1000      // days
-        case 6: unitMs = 7 * 24 * 60 * 60 * 1000  // weeks
-        case 5: unitMs = 30 * 24 * 60 * 60 * 1000 // months
-        default: return nil
-        }
-        return Int(unitMs * number)
-    }
-
     /// A percentage meter (Session or Weekly) from a `TOKENS_LIMIT` entry.
-    private static func percentLine(_ entry: [String: Any], label: String, periodMs: Int) -> MetricLine {
-        let percentage = ProviderParse.clampPercent(ProviderParse.number(entry["percentage"]) ?? 0)
+    private static func percentLine(_ entry: [String: Any], label: String, periodMs: Int) throws -> MetricLine {
+        guard let rawPercentage = ProviderParse.number(entry["percentage"]) else {
+            throw ZAIUsageError.invalidResponse
+        }
+        let percentage = ProviderParse.clampPercent(rawPercentage)
         let resetsAt = ProviderParse.number(entry["nextResetTime"]).map { epochMsToDate($0) }
         return .progress(
             label: label,
@@ -136,9 +154,13 @@ enum ZAIUsageMapper {
     }
 
     /// TIME_LIMIT → a count meter (used / limit) for monthly web-search/reader calls.
-    private static func webSearchLine(from entry: [String: Any]) -> MetricLine {
-        let used = max(0, ProviderParse.number(entry["currentValue"]) ?? 0)
-        let limit = max(0, ProviderParse.number(entry["usage"]) ?? 0)
+    private static func webSearchLine(from entry: [String: Any]) throws -> MetricLine {
+        guard let used = ProviderParse.number(entry["currentValue"]),
+              let limit = ProviderParse.number(entry["usage"]),
+              used >= 0,
+              limit >= 0 else {
+            throw ZAIUsageError.invalidResponse
+        }
         // TIME_LIMIT carries a nextResetTime in current payloads (monthly renewal); honor it when
         // present so the countdown shows the real reset, otherwise the period cadence reads "monthly".
         let resetsAt = ProviderParse.number(entry["nextResetTime"]).map { epochMsToDate($0) }

@@ -7,9 +7,8 @@ import SwiftUI
 /// spacing and even drew dividers the live list doesn't).
 ///
 /// The live list threads per-row gestures/opacity/frames through `rows`; the preview passes plain
-/// `WidgetRowView`s and flips `lifted` for the legible material backing.
+/// `WidgetRowView`s; the preview's shadow supplies its lifted depth.
 struct DashboardMetricCard<Rows: View>: View {
-    var lifted: Bool = false
     @ViewBuilder var rows: Rows
 
     @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
@@ -19,6 +18,6 @@ struct DashboardMetricCard<Rows: View>: View {
             rows
         }
         .padding(.vertical, density.cardGutter)
-        .cardSurface(lifted: lifted)
+        .cardSurface()
     }
 }

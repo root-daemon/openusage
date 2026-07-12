@@ -29,30 +29,20 @@ final class CursorProvider: ProviderRuntime {
         self.pricing = pricing
     }
 
-    /// Cursor's usage-events CSV export (the source for the spend tiles + usage trend) had lagged real
-    /// time by ~12h+ in June 2026, so spend tracking was disabled for a stretch (issue #758). It is back
-    /// on: the spend tiles (Today / Yesterday / Last 30 Days) and the token trend are imputed from the CSV
-    /// via `CursorUsageCSV`, the shared `ModelPricingStore`, and `CursorUsageMapper.appendSpendLines`,
-    /// and the `cursor.today/yesterday/last30/trend` descriptors surface in the layout again. Spend that
-    /// uses a model no pricing source knows prices to $0, so each affected period's tile carries the
-    /// unknown model names for the warning triangle (see `appendSpendLines`).
-    static let spendTrackingEnabled = true
-
     var widgetDescriptors: [WidgetDescriptor] {
-        var descriptors: [WidgetDescriptor] = [
+        [
             .percent(id: "cursor.usage", provider: provider, title: "Total Usage", metricLabel: "Total usage"),
             .percent(id: "cursor.auto", provider: provider, title: "Auto Usage", metricLabel: "Auto usage"),
             .percent(id: "cursor.api", provider: provider, title: "API Usage", metricLabel: "API usage"),
             .boundedDollars(id: "cursor.onDemand", provider: provider, title: "Extra Usage", metricLabel: "On-demand", limit: 100, valueWord: "spent"),
             .boundedCount(id: "cursor.requests", provider: provider, title: "Requests", limit: 500,
                           suffix: "requests", periodDurationMs: CursorUsageMapper.billingPeriodMs),
-            .dollarBalance(id: "cursor.credits", provider: provider, title: "Credits", valueWord: "left")
-        ]
-        if Self.spendTrackingEnabled {
-            descriptors.append(.usageTrend(provider: provider))
-            descriptors.append(contentsOf: WidgetDescriptor.spendTiles(provider: provider))
-        }
-        return descriptors
+            .dollarBalance(id: "cursor.credits", provider: provider, title: "Credits", valueWord: "left"),
+            .usageTrend(provider: provider)
+        ] + WidgetDescriptor.spendTiles(
+            provider: provider,
+            valueTooltipNote: WidgetData.cursorUsageHistoryNote
+        )
     }
 
     func hasLocalCredentials() async -> Bool {
@@ -123,49 +113,78 @@ final class CursorProvider: ProviderRuntime {
         }
 
         if shouldTryGenericRequestFallback(usage: usage) {
-            if let mapped = try? await requestBasedResult(
-                accessToken: currentToken,
-                planName: planName,
-                unavailableMessage: "Cursor request-based usage data unavailable. Try again later."
-            ) {
+            do {
+                let mapped = try await requestBasedResult(
+                    accessToken: currentToken,
+                    planName: planName,
+                    unavailableMessage: "Cursor request-based usage data unavailable. Try again later."
+                )
                 return snapshot(mapped)
+            } catch {
+                AppLog.warn(LogTag.plugin("cursor"), "optional request-based usage fallback failed")
             }
         }
 
         let creditGrants = await fetchCreditGrants(accessToken: currentToken)
-        let stripeResponse = try? await usageClient.fetchStripeBalance(accessToken: currentToken)
-        let stripeBalanceCents = CursorUsageMapper.stripeBalanceCents(from: stripeResponse ?? nil)
+        let stripeBalanceCents = await fetchStripeBalanceCents(accessToken: currentToken)
         var mapped = try CursorUsageMapper.mapUsage(
             usage: usage,
             planName: planName,
             creditGrants: creditGrants,
             stripeBalanceCents: stripeBalanceCents
         )
-        if Self.spendTrackingEnabled {
-            await appendSpendLines(to: &mapped.lines, accessToken: currentToken)
-        }
+        await appendSpendLines(to: &mapped.lines, accessToken: currentToken)
         return snapshot(mapped)
     }
 
     /// Strictly additive: fetch the usage CSV and append the three per-day spend tiles. Any failure
     /// (no session, non-2xx, or undecodable body) appends nothing, so the live Cursor mapping is never
-    /// affected and the spend tiles fall back to "No data". Gated on `spendTrackingEnabled` (see there
-    /// for the on/off history).
+    /// affected and the spend tiles fall back to "No data".
     private func appendSpendLines(to lines: inout [MetricLine], accessToken: String) async {
         let calendar = Calendar.current
         let end = now()
         let startOfToday = calendar.startOfDay(for: end)
         let start = calendar.date(byAdding: .day, value: -29, to: startOfToday) ?? startOfToday
 
-        guard let response = try? await usageClient.fetchUsageCSV(accessToken: accessToken, start: start, end: end),
-              (200..<300).contains(response.statusCode),
-              let csv = String(data: response.body, encoding: .utf8)
-        else {
+        let response: HTTPResponse?
+        do {
+            response = try await usageClient.fetchUsageCSV(accessToken: accessToken, start: start, end: end)
+        } catch {
+            AppLog.warn(LogTag.plugin("cursor"), "usage CSV request failed")
+            return
+        }
+        guard let response else {
+            AppLog.warn(LogTag.plugin("cursor"), "usage CSV request could not be prepared from the current session")
+            return
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            AppLog.warn(LogTag.plugin("cursor"), "usage CSV request returned HTTP \(response.statusCode)")
+            return
+        }
+        guard let csv = String(data: response.body, encoding: .utf8) else {
+            AppLog.warn(LogTag.plugin("cursor"), "usage CSV response was not valid UTF-8")
             return
         }
         let pricing = await pricing()
-        let rows = CursorUsageCSV.parse(csv: csv, pricing: pricing)
-        CursorUsageMapper.appendSpendLines(rows: rows, now: end, pricing: pricing, to: &lines)
+        do {
+            let parsed = try CursorUsageCSV.parse(csv: csv, pricing: pricing)
+            if parsed.rejectedRowCount > 0 {
+                AppLog.warn(
+                    LogTag.plugin("cursor"),
+                    "usage CSV ignored \(parsed.rejectedRowCount) malformed row\(parsed.rejectedRowCount == 1 ? "" : "s")"
+                )
+            }
+            CursorUsageMapper.appendSpendLines(rows: parsed.rows, now: end, pricing: pricing, to: &lines)
+        } catch let error as CursorUsageCSVError {
+            switch error {
+            case .missingColumns(let columns):
+                AppLog.warn(LogTag.plugin("cursor"), "usage CSV missing required columns: \(columns.joined(separator: ", "))")
+            case .malformedCSV:
+                AppLog.warn(LogTag.plugin("cursor"), "usage CSV is structurally malformed")
+            }
+        } catch {
+            AppLog.warn(LogTag.plugin("cursor"), "usage CSV could not be parsed")
+        }
     }
 
     private func fetchUsageWithRetry(accessToken: String, authState: inout CursorAuthState) async throws -> HTTPResponse {
@@ -224,27 +243,82 @@ final class CursorProvider: ProviderRuntime {
     }
 
     private func fetchPlanName(accessToken: String) async -> (String?, Bool) {
-        do {
-            let response = try await usageClient.fetchPlan(accessToken: accessToken)
-            guard (200..<300).contains(response.statusCode),
-                  let body = ProviderParse.jsonObject(response.body),
-                  let planInfo = body["planInfo"] as? [String: Any]
-            else {
-                return (nil, true)
-            }
-            return (planInfo["planName"] as? String, false)
-        } catch {
+        guard let body = await fetchOptionalJSONObject(label: "plan", request: {
+            try await self.usageClient.fetchPlan(accessToken: accessToken)
+        }) else {
             return (nil, true)
         }
+        guard let planInfo = body["planInfo"] as? [String: Any],
+              let planName = (planInfo["planName"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
+        else {
+            AppLog.warn(LogTag.plugin("cursor"), "optional plan response contained invalid plan metadata")
+            return (nil, true)
+        }
+        return (planName, false)
     }
 
     private func fetchCreditGrants(accessToken: String) async -> [String: Any]? {
-        guard let response = try? await usageClient.fetchCredits(accessToken: accessToken),
-              (200..<300).contains(response.statusCode)
-        else {
+        guard let body = await fetchOptionalJSONObject(label: "credit-grants", request: {
+            try await self.usageClient.fetchCredits(accessToken: accessToken)
+        }) else {
             return nil
         }
-        return ProviderParse.jsonObject(response.body)
+        guard let hasCreditGrants = body["hasCreditGrants"] as? Bool else {
+            AppLog.warn(LogTag.plugin("cursor"), "optional credit-grants response contained invalid grant metadata")
+            return nil
+        }
+        if hasCreditGrants {
+            guard let totalCents = ProviderParse.number(body["totalCents"]), totalCents > 0,
+                  let usedCents = ProviderParse.number(body["usedCents"]), usedCents >= 0 else {
+                AppLog.warn(LogTag.plugin("cursor"), "optional credit-grants response contained invalid grant metadata")
+                return nil
+            }
+        }
+        return body
+    }
+
+    private func fetchStripeBalanceCents(accessToken: String) async -> Double {
+        guard let body = await fetchOptionalJSONObject(label: "prepaid-balance", request: {
+            try await self.usageClient.fetchStripeBalance(accessToken: accessToken)
+        }) else {
+            return 0
+        }
+        guard ProviderParse.number(body["customerBalance"]) != nil else {
+            AppLog.warn(LogTag.plugin("cursor"), "optional prepaid-balance response contained invalid balance metadata")
+            return 0
+        }
+        return CursorUsageMapper.stripeBalanceCents(from: body)
+    }
+
+    /// Optional endpoints enrich a usable primary snapshot; they never fail the whole provider. Keep
+    /// their boundary handling in one place so transport, preparation, status, and schema failures are
+    /// all visible with fixed, credential-free diagnostics.
+    private func fetchOptionalJSONObject(
+        label: String,
+        request: () async throws -> HTTPResponse?
+    ) async -> [String: Any]? {
+        let response: HTTPResponse?
+        do {
+            response = try await request()
+        } catch {
+            AppLog.warn(LogTag.plugin("cursor"), "optional \(label) request failed")
+            return nil
+        }
+        guard let response else {
+            AppLog.warn(LogTag.plugin("cursor"), "optional \(label) request could not be prepared from the current session")
+            return nil
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            AppLog.warn(LogTag.plugin("cursor"), "optional \(label) request returned HTTP \(response.statusCode)")
+            return nil
+        }
+        guard let body = ProviderParse.jsonObject(response.body) else {
+            AppLog.warn(LogTag.plugin("cursor"), "optional \(label) response was invalid")
+            return nil
+        }
+        return body
     }
 
     private func requestBasedResult(accessToken: String, planName: String?, unavailableMessage: String) async throws -> CursorMappedUsage {

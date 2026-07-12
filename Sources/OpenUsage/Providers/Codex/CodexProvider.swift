@@ -38,11 +38,11 @@ final class CodexProvider: ProviderRuntime {
     var widgetDescriptors: [WidgetDescriptor] {
         let id = provider.id
         return [
-            .percent(id: "\(id).session", provider: provider, title: "Session", isSessionWindow: true),
+            .percent(id: "\(id).session", provider: provider, title: "Session"),
             .percent(id: "\(id).weekly", provider: provider, title: "Weekly"),
             // Model-specific Spark limits (GPT-5.3-Codex-Spark), parsed from `additional_rate_limits`.
-            // Declared right after Weekly so they group with the core rate-limit meters; seeded as
-            // secondary (below the caret) and unpinned in `DefaultLayout`.
+            // Declared right after Weekly so they group with the core rate-limit meters; seeded On
+            // Demand (below the caret) and unpinned in `DefaultLayout`.
             .percent(id: "\(id).spark", provider: provider, title: "Spark"),
             .percent(id: "\(id).sparkWeekly", provider: provider, title: "Spark Weekly"),
             .combined(id: "\(id).credits", provider: provider, title: "Extra Usage", metricLabel: "Credits"),

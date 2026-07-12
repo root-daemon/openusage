@@ -1,6 +1,17 @@
 # Model Hover Panel: data and architecture feasibility
 
+> **Historical / superseded.** This feasibility report is a 2026-07-04 preimplementation snapshot.
+> The model-breakdown data path and spend-row hover panel described as proposed below shipped that
+> day; see [Dashboard rows](../../dashboard.md#rows),
+> [`SpendTileMapper.swift`](../../../Sources/OpenUsage/Providers/SpendTileMapper.swift),
+> [`HoverPopoverState.swift`](../../../Sources/OpenUsage/Views/HoverPopoverState.swift), and
+> [`ModelUsageDetail.swift`](../../../Sources/OpenUsage/Views/ModelUsageDetail.swift) for the current
+> implementation. The analysis remains a historical record rather than current-state documentation;
+> narrow implementation references may be corrected as the code evolves.
+
 Research date: 2026-07-04. Scope: current `main`-line SwiftPM app architecture in this worktree. This is read-only technical research for a hover-revealed per-model spend/usage breakdown on the existing `Today`, `Yesterday`, and `Last 30 Days` spend rows.
+
+> **Status update (2026-07-10):** This document records the preimplementation architecture at its research date. The current code now carries per-model usage through `ModelUsageSeries`; Cursor's boundary parser also throws on unusable CSV structure and returns `CursorUsageCSVParseResult` (`rows` plus `rejectedRowCount`). See [Cursor](../../providers/cursor.md) for current user-facing behavior.
 
 ## Executive conclusion
 
@@ -190,7 +201,6 @@ Snapshot to view:
   - global meter style
   - reset display mode
   - `alwaysShowPacing`
-  - `widgetID = descriptor.id`
 - `WidgetGroupedListView` resolves each row and renders `WidgetRowView(data: ...)`.
 
 Current row structure:
@@ -266,7 +276,7 @@ Pricing refresh cadence:
 Provider scanner computation:
 
 - Claude and Codex scanners are actors with per-file parse caches keyed by path, size, and mtime. Every refresh reuses unchanged parsed entries/events and reruns dedup + aggregation.
-- Cursor fetches the CSV on each provider refresh when spend tracking is enabled and parses rows in memory.
+- Cursor fetches the CSV on each provider refresh and parses rows in memory.
 - Grok reads and parses the single unified log on each refresh; there is no per-file parse cache today.
 
 Would a model breakdown require extra computation?
@@ -374,7 +384,7 @@ Popover and hover behavior:
 
 Performance:
 
-- Cursor CSV parse cost already exists on every Cursor refresh when spend tracking is enabled. Model grouping is cheap relative to network fetch and parse.
+- Cursor CSV parse cost already exists on every Cursor refresh. Model grouping is cheap relative to network fetch and parse.
 - Claude/Codex per-file parse caches keep repeated refreshes cheap; model grouping reruns over cached entries/events each refresh, like current day aggregation.
 - Grok scans a single append-only file without a parse cache. A model panel increases only aggregation state, not file reads, but large logs could make Grok the highest-risk provider.
 

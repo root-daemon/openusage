@@ -62,8 +62,12 @@ final class ZAIProvider: ProviderRuntime {
             if ZAIUsageMapper.isNoCodingPlan(body) {
                 return ProviderSnapshot.error(provider: provider, error: ZAIUsageError.noCodingPlan)
             }
-            let mapped = ZAIUsageMapper.map(quotaBody: body, subscriptionBody: subscription)
-            return ProviderSnapshot.make(provider: provider, plan: mapped.plan, lines: mapped.lines, refreshedAt: now())
+            do {
+                let mapped = try ZAIUsageMapper.map(quotaBody: body, subscriptionBody: subscription)
+                return ProviderSnapshot.make(provider: provider, plan: mapped.plan, lines: mapped.lines, refreshedAt: now())
+            } catch {
+                return ProviderSnapshot.error(provider: provider, error: error)
+            }
         case .authFailure:
             return ProviderSnapshot.error(provider: provider, error: ZAIAuthError.invalidKey)
         case .failed(let error):
@@ -105,10 +109,6 @@ extension ZAIProvider: APIKeyManaging {
     func currentAPIKey() -> String? { authStore.currentAPIKey() }
     func saveAPIKey(_ key: String) throws { try authStore.saveAPIKey(key) }
     func deleteAPIKey() throws { try authStore.deleteAPIKey() }
-    /// Where the in-app editor writes — the primary config file the auth store reads first.
-    var apiKeyStorageDescription: String { ZAIAuthStore.configPaths[0] }
-    /// The env var shown in the "Using ZAI_API_KEY from your environment" line.
-    var apiKeyEnvironmentName: String { ZAIAuthStore.environmentNames[0] }
 }
 
 private enum QuotaResult {

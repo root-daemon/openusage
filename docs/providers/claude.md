@@ -12,17 +12,20 @@ Tracks your Claude subscription limits using the login you already have from Cla
 | Fable | Separate weekly Fable limit (model-scoped window from the `limits` array) |
 | Extra Usage | Extra-usage credits spent against your monthly cap |
 | Today / Yesterday / Last 30 Days | Local spend, as cost, tokens, or both (see below) |
-| Plan | Your plan name (optional widget) |
+
+When Claude reports your plan name, OpenUsage shows it beside the provider name.
 
 ## Where credentials come from
 
-Sign in once with Claude Code; OpenUsage reads the same credentials. It checks every place Claude Code can store them, in priority order — the keychain is Claude Code's source of truth on macOS, so it wins over a leftover credentials file:
+Sign in once with Claude Code; OpenUsage reads the same credentials. It checks every place Claude Code can store them, preferring the login that can actually read your subscription usage:
 
-1. `CLAUDE_CODE_OAUTH_TOKEN` environment variable
-2. The macOS keychain entry Claude Code maintains
-3. `~/.claude/.credentials.json` (or `$CLAUDE_CONFIG_DIR/.credentials.json`)
+1. The macOS keychain entry Claude Code maintains (its source of truth on macOS)
+2. `~/.claude/.credentials.json` (or `$CLAUDE_CONFIG_DIR/.credentials.json`)
+3. `CLAUDE_CODE_OAUTH_TOKEN` environment variable
 
-If one source holds an expired or "locked out" token, OpenUsage falls back to the others — so signing in again with `claude` outside the app is picked up on the next refresh, without restarting OpenUsage. Tokens are refreshed automatically; rotated tokens are written back where they came from.
+A `CLAUDE_CODE_OAUTH_TOKEN` — usually a long-lived `claude setup-token` — can run the model but can't read your Session and Weekly limits, and it often lingers in your shell environment. So when a real keychain or file login is present, OpenUsage uses that login for the live meters and keeps the environment token only as a fallback; the Session/Weekly meters no longer go blank just because that token is set. If the environment token is your *only* credential (a headless setup), it's used on its own and the spend tiles still load from local logs.
+
+If one source holds an expired or "locked out" token, OpenUsage falls back to the others — so signing in again with `claude` outside the app is picked up on the next refresh, without restarting OpenUsage. Tokens are refreshed automatically; rotated tokens are written back only while the ordered login candidates still match the start of the refresh, so a newly added higher-priority login wins.
 
 ## The spend tiles
 
@@ -33,7 +36,7 @@ Today / Yesterday / Last 30 Days are computed **locally**: OpenUsage reads the C
 - **"Not logged in"** — run `claude` and sign in, then refresh.
 - **"Signed in to the Claude desktop app?"** — a login done only in the Claude desktop app is stored encrypted in a way OpenUsage can't read. Run `claude` in a terminal and sign in once; both logins coexist, and OpenUsage picks up the CLI one.
 - **"Re-login for live usage"** (an amber warning on the Claude header) — your saved login can authenticate for inference but can't read your subscription limits, because it lacks the `user:profile` access (this is what an inference-only token from `claude setup-token` carries). Run `claude` and sign in again with your Claude account, then refresh; the spend tiles keep working in the meantime.
-- **"Updates blocked by Anthropic"** (an amber warning on the Claude header) — the usage API is throttling OpenUsage. It keeps your last values, shows when it will retry, and backs off in the meantime — manual refreshes only extend the block, so the best fix is patience.
+- **"Updates blocked by Anthropic"** (an amber warning on the Claude header) — the usage API is throttling OpenUsage. It keeps the last values from the same login, shows when it will retry, and backs off in the meantime. A different login starts with a fresh cache and cooldown.
 - **Spend tiles show "No data"** — OpenUsage found no Claude Code logs in the last 30 days. If your logs live somewhere custom, set `CLAUDE_CONFIG_DIR` so both Claude Code and OpenUsage look in the same place.
 
 ## Under the hood

@@ -59,7 +59,7 @@ final class OpenRouterAuthStoreTests: XCTestCase {
         XCTAssertEqual(store.loadAPIKey()?.apiKey, "sk-or-env")
     }
 
-    // MARK: - In-app save / delete / status (Settings ▸ API Keys)
+    // MARK: - In-app save / delete / status (Customize → OpenRouter → API Key)
 
     func testSaveAPIKeyWritesTrimmedJSONConfigFile() throws {
         let files = FakeFiles()
@@ -362,8 +362,6 @@ final class OpenRouterProviderTests: XCTestCase {
 
         XCTAssertEqual(provider.apiKeyStatus, .fromEnvironment)
         XCTAssertEqual(provider.currentAPIKey(), "sk-or-env")
-        XCTAssertEqual(provider.apiKeyEnvironmentName, "OPENROUTER_API_KEY")
-        XCTAssertTrue(provider.apiKeyStorageDescription.contains("openrouter.json"))
 
         try provider.saveAPIKey("sk-or-saved")
         XCTAssertEqual(provider.apiKeyStatus, .overrideActive)
@@ -382,4 +380,3 @@ private func jsonResponse(_ object: [String: Any]) -> HTTPResponse {
     let body = (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
     return HTTPResponse(statusCode: 200, headers: [:], body: body)
 }
-

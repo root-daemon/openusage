@@ -1,5 +1,243 @@
 # Changelog
 
+## v0.7.4
+
+### New Features
+- Cross-provider Total Spend ring card with morphing sectors, provider brand colors, a settings toggle, and capability gating ([#857](https://github.com/robinebers/openusage/pull/857)) by @robinebers
+- Add Cost / Tokens / Cost/MTok menu to the Total Spend card ([#906](https://github.com/robinebers/openusage/pull/906)) by @robinebers
+- Add OpenCode provider (Zen / Go) from local logs ([#969](https://github.com/robinebers/openusage/pull/969)) by @robinebers
+- Add GPT-5.6 pricing aliases ([#880](https://github.com/robinebers/openusage/pull/880)) by @robinebers
+- Add Grok 4.5, Kimi K2.7 Code, and Claude 4.7 Opus pricing aliases ([#907](https://github.com/robinebers/openusage/pull/907)) by @robinebers
+- Add a hover affordance to Usage Trend values ([#881](https://github.com/robinebers/openusage/pull/881)) by @robinebers
+- Replace the Codex resets tooltip with a hover popover and highlight the value on hover ([#879](https://github.com/robinebers/openusage/pull/879)) by @robinebers
+- Add hover highlight on spend-row values so the model breakdown reads as interactive ([#877](https://github.com/robinebers/openusage/pull/877)) by @claude
+
+### Bug Fixes
+- Improve Options legibility when Increase Transparency is on ([#963](https://github.com/robinebers/openusage/pull/963)) by @validatedev
+- Isolate Claude usage cache when the login changes ([#953](https://github.com/robinebers/openusage/pull/953)) by @robinebers
+- Prefer profile-scoped Claude login over an inference-only environment token for live usage ([#865](https://github.com/robinebers/openusage/pull/865)) by @joshuavial
+- Bind Antigravity credential caches to verified local state and purge on logout ([#961](https://github.com/robinebers/openusage/pull/961)) by @robinebers
+- Keep local credential files private ([#910](https://github.com/robinebers/openusage/pull/910)) by @robinebers
+- Encode OAuth refresh form values correctly ([#911](https://github.com/robinebers/openusage/pull/911)) by @robinebers
+- Validate Cursor usage exports without dropping primary usage ([#948](https://github.com/robinebers/openusage/pull/948)) by @robinebers
+- Mark Cursor spend as estimated ([#886](https://github.com/robinebers/openusage/pull/886)) by @robinebers
+- Reject malformed Z.ai quota values ([#951](https://github.com/robinebers/openusage/pull/951)) by @robinebers
+- Fix request-wide long-context pricing and price GPT-5.6 fast variants correctly ([#885](https://github.com/robinebers/openusage/pull/885), [#889](https://github.com/robinebers/openusage/pull/889)) by @robinebers
+- Match Cursor's `grok-4.5-fast-high` pricing slug order ([#908](https://github.com/robinebers/openusage/pull/908)) by @robinebers
+- Clear the update banner after the available update is resolved ([#882](https://github.com/robinebers/openusage/pull/882)) by @robinebers
+- Keep launch-at-login errors visible ([#887](https://github.com/robinebers/openusage/pull/887)) by @robinebers
+- Bound concurrent log parsing and report unreadable usage files without repeated warnings ([#888](https://github.com/robinebers/openusage/pull/888), [#890](https://github.com/robinebers/openusage/pull/890)) by @robinebers
+- Preserve the initial popover height and measure it against the correct display ([#904](https://github.com/robinebers/openusage/pull/904)) by @robinebers
+- Show Codex usage percentages as reported while keeping near-empty pacing calm ([#905](https://github.com/robinebers/openusage/pull/905)) by @robinebers
+- Improve Codex resets popover edge cases (imminent “soon”, zero vs unfetched, two-unit day scale) ([#879](https://github.com/robinebers/openusage/pull/879)) by @robinebers
+- Never drop an enablement wake posted mid refresh pass; probe credentials concurrently ([#856](https://github.com/robinebers/openusage/pull/856)) by @robinebers
+- Anchor tooltips to the hovered item, balance wrapped lines, and use the cursor’s screen for zero-size anchor fallback ([#858](https://github.com/robinebers/openusage/pull/858)) by @robinebers
+- Scope Total Spend to providers with real spend tiles; show the card even when the dashboard is empty ([#857](https://github.com/robinebers/openusage/pull/857)) by @robinebers
+- Disable hover tooltips in share-card renders by @robinebers
+- Remove the legacy Tauri autostart LaunchAgent on launch ([#876](https://github.com/robinebers/openusage/pull/876)) by @claude
+- Single-instance decisions must not trust the LaunchServices snapshot ([#873](https://github.com/robinebers/openusage/pull/873)) by @xuing
+- Center the Total Spend share arrow like the provider header icons by @robinebers
+- Clear the value highlight when the panel closes by @claude
+
+### Refactor
+- Extract layout persistence, startup rules, dashboard sections, and panel management into focused components ([#895](https://github.com/robinebers/openusage/pull/895), [#896](https://github.com/robinebers/openusage/pull/896), [#897](https://github.com/robinebers/openusage/pull/897), [#898](https://github.com/robinebers/openusage/pull/898), [#899](https://github.com/robinebers/openusage/pull/899), [#900](https://github.com/robinebers/openusage/pull/900), [#902](https://github.com/robinebers/openusage/pull/902), [#952](https://github.com/robinebers/openusage/pull/952)) by @robinebers
+- Extract `PanelHeightCoordinator`, `StatusItemImageUpdater`, `QuotaNotificationEvaluator`, and `PopoverNavigationStore` ([#869](https://github.com/robinebers/openusage/pull/869), [#870](https://github.com/robinebers/openusage/pull/870), [#871](https://github.com/robinebers/openusage/pull/871), [#872](https://github.com/robinebers/openusage/pull/872)) by @robinebers
+- Simplify refresh coalescing, popover visibility, and model-share computation ([#891](https://github.com/robinebers/openusage/pull/891), [#893](https://github.com/robinebers/openusage/pull/893), [#894](https://github.com/robinebers/openusage/pull/894)) by @robinebers
+- Remove dead UI and provider code paths ([#883](https://github.com/robinebers/openusage/pull/883), [#950](https://github.com/robinebers/openusage/pull/950)) by @robinebers
+- DRY / dead-code / KISS cleanup from code-quality audit ([#868](https://github.com/robinebers/openusage/pull/868)) by @robinebers
+
+### Chores
+- Refresh price lists hourly instead of daily ([#909](https://github.com/robinebers/openusage/pull/909)) by @robinebers
+- Sync documentation with current app behavior ([#884](https://github.com/robinebers/openusage/pull/884), [#914](https://github.com/robinebers/openusage/pull/914)) by @robinebers
+- Test the real metric-divider path ([#892](https://github.com/robinebers/openusage/pull/892)) by @robinebers
+- Update README screenshot and version query on screenshot URL by @robinebers
+- Fix Pages deploy recovery in release skill to use `main` ref by @robinebers
+- Bump PostHog iOS 3.64.1 → 3.64.5 ([#960](https://github.com/robinebers/openusage/pull/960)) by @dependabot[bot]
+- Bump actions/deploy-pages 4 → 5 ([#958](https://github.com/robinebers/openusage/pull/958)) by @dependabot[bot]
+- Bump actions/upload-pages-artifact 3 → 5 ([#959](https://github.com/robinebers/openusage/pull/959)) by @dependabot[bot]
+
+---
+
+### Changelog
+**Full Changelog**: [v0.7.3...v0.7.4](https://github.com/robinebers/openusage/compare/v0.7.3...v0.7.4)
+
+- [766d035](https://github.com/robinebers/openusage/commit/766d03509b68668686aee69e13da3fda8f04ae1c) Address review findings: fail loudly on unreadable OpenCode sources by @robinebers
+- [e59c86f](https://github.com/robinebers/openusage/commit/e59c86f3239b0d4b6eb43d0ac73b5c0f2dedd36f) Fix stale-anchor Go plan badge (Bugbot) by @robinebers
+- [1bfb96a](https://github.com/robinebers/openusage/commit/1bfb96a7734b24e2cc62bc75e2b63caf9bc7e819) Add OpenCode provider (Zen / Go) from local logs by @robinebers
+- [b2aa491](https://github.com/robinebers/openusage/commit/b2aa491292575241ec8615a177041b763a9eaaba) fix(ui): reinforce Options glass in transparent mode by @validatedev
+- [8755f62](https://github.com/robinebers/openusage/commit/8755f620cdc04032bb69e289c1acbfd4b486d18c) docs: align credential probe guidance by @robinebers
+- [43e20fd](https://github.com/robinebers/openusage/commit/43e20fd01db3013ac0b6931e799d4cbd3c05e80d) docs: correct residual behavior claims by @robinebers
+- [113f84a](https://github.com/robinebers/openusage/commit/113f84a1ca7dfd0aa8f9a3ea30a5240102058213) docs: sync current app behavior by @robinebers
+- [a378387](https://github.com/robinebers/openusage/commit/a37838773f425672d7b27cc42780b16ef0e9853e) docs: finish layout terminology cleanup by @robinebers
+- [710a75e](https://github.com/robinebers/openusage/commit/710a75ecf3e6757f9bdef34f286325605ee98da4) docs: use current layout section names by @robinebers
+- [5c47e8b](https://github.com/robinebers/openusage/commit/5c47e8b4b2a6639f0fdd3838540dc49b19c952d8) refactor: split layout store responsibilities by @robinebers
+- [1fcdbf2](https://github.com/robinebers/openusage/commit/1fcdbf254b892ce1a924667c6a3345626b53ce2c) refactor: align metric and API-key contracts by @robinebers
+- [d7355ad](https://github.com/robinebers/openusage/commit/d7355adaaad0cd6a4cc06dec8d2c3a396dd8c66f) refactor: remove dead text widget parsing by @robinebers
+- [61cc416](https://github.com/robinebers/openusage/commit/61cc41602c8baab36def63208ab9e2a0ae2fdf90) docs: describe current refresh and metric paths by @robinebers
+- [8042c14](https://github.com/robinebers/openusage/commit/8042c141fd95223a605945d9981ca51e1cc88e9d) test: align coverage with live contracts by @robinebers
+- [5ffba86](https://github.com/robinebers/openusage/commit/5ffba868c48809e5e1b01be5e32b4827e6d49a98) refactor: remove dead UI and provider paths by @robinebers
+- [d31d37b](https://github.com/robinebers/openusage/commit/d31d37b99cacffa83842902a436336ff8628fcb4) Reuse shared numeric parsing for Z.ai by @robinebers
+- [3db9090](https://github.com/robinebers/openusage/commit/3db9090c67dc68728a356596b0b132f75046c219) Keep unknown Z.ai windows forward compatible by @robinebers
+- [be28ac6](https://github.com/robinebers/openusage/commit/be28ac6a8919702ccd3a3505261a86184d90a875) Reject malformed Z.ai quota values by @robinebers
+- [6dc87ba](https://github.com/robinebers/openusage/commit/6dc87bad90cdd856fa97ce51f588c02775d39499) Reject JSON booleans at numeric boundaries by @robinebers
+- [697c7a9](https://github.com/robinebers/openusage/commit/697c7a919826eb029d2b9ecc88032bc74792cb0f) Keep Cursor boundary docs and tests current by @robinebers
+- [b1b80e8](https://github.com/robinebers/openusage/commit/b1b80e8639bec9d8ac041a616c33a6e4e7df9eaf) Log Cursor optional endpoint failures by @robinebers
+- [fe6ca85](https://github.com/robinebers/openusage/commit/fe6ca85c9d0c20ecaf731034de41b71e3bad961c) Validate Cursor usage exports at the boundary by @robinebers
+- [14ab1f5](https://github.com/robinebers/openusage/commit/14ab1f54e7ab68d32986b654fd6e722d226fee8d) fix: reject BOM-prefixed malformed credentials by @robinebers
+- [5cd9268](https://github.com/robinebers/openusage/commit/5cd9268bad5f0178abeda7d9580b88b0f2d3be3d) fix: purge Antigravity cache during logout detection by @robinebers
+- [4102b00](https://github.com/robinebers/openusage/commit/4102b0062b3a51bbd79aac233215516796046735) Protect credential probes and Antigravity cache by @robinebers
+- [33e19b0](https://github.com/robinebers/openusage/commit/33e19b09c688e462a35ef055bd59d6b01b791f87) Bump github.com/posthog/posthog-ios from 3.64.1 to 3.64.5 by @dependabot[bot]
+- [3ea0867](https://github.com/robinebers/openusage/commit/3ea0867eb6569dd45d687fcd1ec4218225574114) Bump actions/upload-pages-artifact from 3 to 5 by @dependabot[bot]
+- [b66f3ba](https://github.com/robinebers/openusage/commit/b66f3ba8823160478b29c29f39fc2a1b25a0e1da) Bump actions/deploy-pages from 4 to 5 by @dependabot[bot]
+- [309f298](https://github.com/robinebers/openusage/commit/309f298edcd5f699e877e272d6d81162cd3d34c3) fix: isolate Claude usage by login by @robinebers
+- [906d94f](https://github.com/robinebers/openusage/commit/906d94fc7b0c27f69668dd11d0caa9952408b133) fix: keep credential files private by @robinebers
+- [4816fbf](https://github.com/robinebers/openusage/commit/4816fbfb297eb148b055cfd8bf21f20103367d48) fix: correctly encode OAuth form values by @robinebers
+- [890d809](https://github.com/robinebers/openusage/commit/890d80937d47eb36a13c537ad88ecc2f199fce2e) chore(pricing): refresh price lists hourly instead of daily by @robinebers
+- [e04266c](https://github.com/robinebers/openusage/commit/e04266c75b4ddab0b7fd34964c876ee1cd04bc28) fix(pricing): match Cursor's grok-4.5-fast-high slug order by @robinebers
+- [b96b012](https://github.com/robinebers/openusage/commit/b96b012d755af449caf35098191128686b6f5000) feat(pricing): add Grok 4.5, Kimi K2.7 Code, and Claude 4.7 Opus aliases by @robinebers
+- [1419a20](https://github.com/robinebers/openusage/commit/1419a20d792aefaee4bb437504335604dc38648f) docs: changelog for v0.7.4-beta.5 by @robinebers
+- [a433934](https://github.com/robinebers/openusage/commit/a433934b220c1d6d1bdd02f20fcf7eb5d9791e48) Reorder Total Spend metric menu to Cost, Cost/MTok, Tokens. by @robinebers
+- [87e3ef4](https://github.com/robinebers/openusage/commit/87e3ef456cec47bb2e62efd3d3fe079ac3c9e4ba) Add Cost / Tokens / Cost/MTok menu to Total Spend card. by @robinebers
+- [e7fa4f9](https://github.com/robinebers/openusage/commit/e7fa4f9d7842bd585362309af2bdcca474ae2347) docs: changelog for v0.7.4-beta.4 by @robinebers
+- [a1bdc28](https://github.com/robinebers/openusage/commit/a1bdc288939a9fa8477efed3a2e7bdfbf570d899) Keep near-empty Codex pacing calm by @robinebers
+- [5fbc22b](https://github.com/robinebers/openusage/commit/5fbc22b3669b34ebd621765d86b7b8e8ddd211e8) Show Codex usage percentages as reported by @robinebers
+- [2da68aa](https://github.com/robinebers/openusage/commit/2da68aa4a5f91cb9b77deee2b2e94ca4dd7daf38) Capture display before measuring panel height by @robinebers
+- [4c53fb1](https://github.com/robinebers/openusage/commit/4c53fb1b8fa189900ad28a2cd25d73c21306ed21) Preserve the first panel height on open by @robinebers
+- [ac6a3e3](https://github.com/robinebers/openusage/commit/ac6a3e3e12fe2fb1c7e0eceb098f1683ec1bac3c) Extract panel outside-click handling by @robinebers
+- [07a35bd](https://github.com/robinebers/openusage/commit/07a35bd7b82ebdd63a3257828f1f8622d1dbde79) Extract panel height handling by @robinebers
+- [612d847](https://github.com/robinebers/openusage/commit/612d847893dc3f367ccf7d55bf09b10a5529bcf4) Extract popover footer by @robinebers
+- [dba66ad](https://github.com/robinebers/openusage/commit/dba66adac6b07673e0b84f63d108af808cea5399) Extract popover top bar by @robinebers
+- [0581cfc](https://github.com/robinebers/openusage/commit/0581cfc5f37c979d2d0d1fbfd3c601a37821cf6c) Extract dashboard scrolling content by @robinebers
+- [35842a9](https://github.com/robinebers/openusage/commit/35842a99b18c1364f31cf47780cb752556e1662a) Extract layout startup rules by @robinebers
+- [315e6b3](https://github.com/robinebers/openusage/commit/315e6b34749f64650186dee7bfe7a4ca921df3ee) Extract layout persistence by @robinebers
+- [a8750e7](https://github.com/robinebers/openusage/commit/a8750e70b785cf00ee118cb813b2b168f5c62d34) Keep unreadable log warnings quiet across batches by @robinebers
+- [76247d7](https://github.com/robinebers/openusage/commit/76247d7c7de32b38e1ee28d02144aef3453b8bee) Test the real metric divider path by @robinebers
+- [8ddc401](https://github.com/robinebers/openusage/commit/8ddc401ee97c6b740c5a65e17dec33630533cba6) Compute model shares once per render by @robinebers
+- [f44d4ef](https://github.com/robinebers/openusage/commit/f44d4ef783e2a7e380b131bc8a7a84fa2c51fbab) Use the controller popover visibility signal by @robinebers
+- [1040f53](https://github.com/robinebers/openusage/commit/1040f5356a29e1a0beb372ac36d205f28c0685b2) fix(claude): prefer profile-scoped login over inference-only env token for live usage by @joshuavial
+- [2d4a5b4](https://github.com/robinebers/openusage/commit/2d4a5b42ac8bb7c786901faee8002d22934d4ec4) Simplify menu bar refresh coalescing by @robinebers
+- [c0b190f](https://github.com/robinebers/openusage/commit/c0b190f13d3fa38eca8c1bc7a880ed4a35f47c9c) Log unreadable usage files once by @robinebers
+- [f8e02b5](https://github.com/robinebers/openusage/commit/f8e02b59228aaa49250b8bf4b49dfad9740ce64b) fix(pricing): price GPT-5.6 fast variants by @robinebers
+- [27ebb0b](https://github.com/robinebers/openusage/commit/27ebb0b9792579cd05ee13f4f6d743b9576a6ebc) Bound concurrent log parsing by @robinebers
+- [27bd492](https://github.com/robinebers/openusage/commit/27bd492ee1e907c0143d76bea8d8c030417f8516) Keep launch-at-login errors visible by @robinebers
+- [2669a7b](https://github.com/robinebers/openusage/commit/2669a7bbc6b1298c84d94e43b19fff93d4e1f40a) Mark Cursor spend as estimated by @robinebers
+- [e881be6](https://github.com/robinebers/openusage/commit/e881be608c07c9f544b5e6eab5e10e0eeaa55334) Fix request-wide long-context pricing by @robinebers
+- [1bcc8f9](https://github.com/robinebers/openusage/commit/1bcc8f9756dc07e4937b93f2bc92e1d6330eeee6) Refresh pricing and panel documentation by @robinebers
+- [4b61302](https://github.com/robinebers/openusage/commit/4b61302f1ff84d9747c9c398f1a59b8bfecff5f2) Remove unused UI plumbing by @robinebers
+- [3194f3b](https://github.com/robinebers/openusage/commit/3194f3baf7c436309a0f1d5f86487bee85e6f764) Clear resolved update banner by @robinebers
+- [c9be949](https://github.com/robinebers/openusage/commit/c9be949905038a4214fe011f5286ab79ee86112c) Add hover affordance to usage trend by @robinebers
+- [8a8ea33](https://github.com/robinebers/openusage/commit/8a8ea33c3e690da980b2832fa1c151330784608d) Add GPT-5.6 pricing aliases and tests by @robinebers
+- [6c99db7](https://github.com/robinebers/openusage/commit/6c99db7b33b4bada373507c105e14d68a2b72188) docs: changelog for v0.7.4-beta.3 by @robinebers
+- [0506f02](https://github.com/robinebers/openusage/commit/0506f02d00abee909ba50028cbe8679df67eff75) Always show two units at the day scale in compactDuration by @robinebers
+- [417900f](https://github.com/robinebers/openusage/commit/417900f1cf27586895a6de13a775c3511f8678ce) Collapse imminent resets to "soon" and gate the popover on real data by @robinebers
+- [5f42ee9](https://github.com/robinebers/openusage/commit/5f42ee9c2eb59a980ccfaeb3de4a89b02a1682d9) Distinguish zero resets from unfetched expiries in the popover by @robinebers
+- [cbe303e](https://github.com/robinebers/openusage/commit/cbe303ec5ddf3437b20506de25da6ace39cc20cd) Replace Codex resets tooltip with a hover popover and light its value by @robinebers
+- [dd53cbe](https://github.com/robinebers/openusage/commit/dd53cbed89358d4c3ad1e8bee23ebae3368121c4) Clear the value highlight on panel close by tracking hover on the coordinator by @claude
+- [71a6ba0](https://github.com/robinebers/openusage/commit/71a6ba00c0f3a025c0028b51748b1cf2dc0a7ab6) Add hover highlight to spend-row value so the model breakdown reads as interactive by @claude
+- [9cf0c62](https://github.com/robinebers/openusage/commit/9cf0c62de4396c3bab2ce23ccb35062b796afd08) Address review findings: real clamp coverage, private clamped, honest imports by @claude
+- [84879dd](https://github.com/robinebers/openusage/commit/84879dd4704e2974b2cbf4e1aa44f1f6e77afe5a) Address review findings: non-optional image updater, fix stale doc reference by @claude
+- [43241b4](https://github.com/robinebers/openusage/commit/43241b411486bf29285429764febd27e63edade1) Address review findings: fix stale dedup doc, note the snapshot delta by @claude
+- [7f1af89](https://github.com/robinebers/openusage/commit/7f1af892eab1f001ea72e82dec9825cc558e8b89) Address review findings: private navigation, naming, stale doc, notice tests by @claude
+- [7cc1f25](https://github.com/robinebers/openusage/commit/7cc1f25e9496dd274ba6e19d08d1c8a001030ef9) Address review findings: pill shadow drift, test pins, Cursor facts adoption by @claude
+- [dff6786](https://github.com/robinebers/openusage/commit/dff6786e907b0f9d0d07101b339cb1899c6a728e) fix: remove the legacy Tauri autostart LaunchAgent on launch by @claude
+- [ea51bdf](https://github.com/robinebers/openusage/commit/ea51bdf7b038fbe81039a43cf109edaf8faa6565) fix: single-instance decisions must not trust the LaunchServices snapshot (#874) by @xuing
+- [f0baad2](https://github.com/robinebers/openusage/commit/f0baad20a936252b2c21a075db7b75c4f224783e) refactor(DashboardView): extract PanelHeightCoordinator (auto-fit computation) by @robinebers
+- [c4c5971](https://github.com/robinebers/openusage/commit/c4c59712692ed0296fd25f810a3d741995abf70d) refactor(StatusItemController): extract StatusItemImageUpdater by @robinebers
+- [89ee82e](https://github.com/robinebers/openusage/commit/89ee82ecfa9e7defa6ded0e7ce3d6f0e748acb29) refactor(WidgetDataStore): extract QuotaNotificationEvaluator by @robinebers
+- [7597156](https://github.com/robinebers/openusage/commit/75971560e962636822fd7cdcd8ae553ab8670d24) refactor(LayoutStore): extract PopoverNavigationStore + generic TransientNotice by @robinebers
+- [667f350](https://github.com/robinebers/openusage/commit/667f350a1499514451e5eb131fd5cbecdda4d8b8) refactor: DRY/dead-code/KISS cleanup from code-quality audit by @robinebers
+- [4d75562](https://github.com/robinebers/openusage/commit/4d7556269013cf5c9c76216caf2e6fd008dff742) Add version query to screenshot URL in README by @robinebers
+- [a26a113](https://github.com/robinebers/openusage/commit/a26a113081799fd010cc00f5aeaa79a0bf8eb014) docs: update README screenshot by @robinebers
+- [ba04c54](https://github.com/robinebers/openusage/commit/ba04c54f68215a42a370e0a302f71a416421d0f1) docs(skills): fix Pages deploy recovery to use main ref by @robinebers
+- [3686abc](https://github.com/robinebers/openusage/commit/3686abc136db12f236ab66898c7026d51cd655f3) fix(ui): center the Total Spend share arrow like the provider header icons by @robinebers
+- [bfd6e68](https://github.com/robinebers/openusage/commit/bfd6e6846bd4a1a83bcf27c2e76ee804c6504fb3) docs: changelog for v0.7.4-beta.2 by @robinebers
+- [141bf53](https://github.com/robinebers/openusage/commit/141bf5311fd3c528e61606c6fe9641f8173f7957) fix(share): disable hover tooltips in share-card renders by @robinebers
+- [e740324](https://github.com/robinebers/openusage/commit/e7403241a53577dfa1b5fc7ad26f0788639cfd8e) docs: changelog for v0.7.4-beta.1 by @robinebers
+- [1d24835](https://github.com/robinebers/openusage/commit/1d2483503fc5c445eb93c959a61e88d5235567fb) fix: derive Total Spend info tooltip from enabled spend-capable providers by @robinebers
+- [a00f786](https://github.com/robinebers/openusage/commit/a00f786c8b8417e998755ea535a85a64b325523d) fix(tooltip): pick the cursor's screen for the zero-size anchor fallback by @robinebers
+- [c95f7c8](https://github.com/robinebers/openusage/commit/c95f7c895741af280793de7d5af1e9250cb73c6d) fix(dashboard): scope Total Spend to real spend-tile providers, show card with empty dashboard by @robinebers
+- [97dec12](https://github.com/robinebers/openusage/commit/97dec12a2ea4c61bf5b5642cef52468705353775) fix(tooltip): anchor bubble to the hovered item and balance wrapped lines by @robinebers
+- [c56d8d1](https://github.com/robinebers/openusage/commit/c56d8d17e821d0dad6fc7fbf3c188dd6333766cb) feat(dashboard): morphing ring sectors, brand colors, settings toggle, capability gating by @robinebers
+- [53115a8](https://github.com/robinebers/openusage/commit/53115a8275b9e95935277863a8da2693eb99f1a7) Revert "feat(dashboard): stacked-bars variant of the Total Spend card" by @robinebers
+- [684ccdc](https://github.com/robinebers/openusage/commit/684ccdc9a087c9a55dc3dccfd00247b5106f0bd6) feat(dashboard): stacked-bars variant of the Total Spend card by @robinebers
+- [8251ac3](https://github.com/robinebers/openusage/commit/8251ac3d3e7c9296ba245a94ee5e6560139e8d29) feat(dashboard): cross-provider Total Spend ring card by @robinebers
+- [2a225eb](https://github.com/robinebers/openusage/commit/2a225ebba05f599fc5b8cdc2708b76ff78868856) fix(refresh): never lose an enablement wake posted mid-pass; probe credentials concurrently by @robinebers
+
+## v0.7.4-beta.5
+
+### New Features
+- Add Cost / Tokens / Cost/MTok menu to Total Spend card. ([#906](https://github.com/robinebers/openusage/pull/906)) by @robinebers
+
+### Bug Fixes
+- Reorder Total Spend metric menu to Cost, Cost/MTok, Tokens. ([#906](https://github.com/robinebers/openusage/pull/906)) by @robinebers
+
+---
+
+### Changelog
+**Full Changelog**: [v0.7.4-beta.4...v0.7.4-beta.5](https://github.com/robinebers/openusage/compare/v0.7.4-beta.4...v0.7.4-beta.5)
+
+- [a433934](https://github.com/robinebers/openusage/commit/a433934b220c1d6d1bdd02f20fcf7eb5d9791e48) Reorder Total Spend metric menu to Cost, Cost/MTok, Tokens. by @robinebers
+- [87e3ef4](https://github.com/robinebers/openusage/commit/87e3ef456cec47bb2e62efd3d3fe079ac3c9e4ba) Add Cost / Tokens / Cost/MTok menu to Total Spend card. by @robinebers
+
+## v0.7.4-beta.4
+
+### New Features
+- Add GPT-5.6 pricing aliases and tests ([#880](https://github.com/robinebers/openusage/pull/880)) by @robinebers
+- Add a hover affordance to Usage Trend values ([#881](https://github.com/robinebers/openusage/pull/881)) by @robinebers
+
+### Bug Fixes
+- Clear the update banner after the available update is resolved ([#882](https://github.com/robinebers/openusage/pull/882)) by @robinebers
+- Fix request-wide long-context pricing and price GPT-5.6 fast variants correctly ([#885](https://github.com/robinebers/openusage/pull/885), [#889](https://github.com/robinebers/openusage/pull/889)) by @robinebers
+- Mark Cursor spend as estimated ([#886](https://github.com/robinebers/openusage/pull/886)) by @robinebers
+- Keep launch-at-login errors visible ([#887](https://github.com/robinebers/openusage/pull/887)) by @robinebers
+- Bound concurrent log parsing and report unreadable usage files without repeated warnings ([#888](https://github.com/robinebers/openusage/pull/888), [#890](https://github.com/robinebers/openusage/pull/890)) by @robinebers
+- Prefer profile-scoped Claude login over an inference-only environment token for live usage ([#865](https://github.com/robinebers/openusage/pull/865)) by @joshuavial
+- Preserve the initial popover height and measure it against the correct display ([#904](https://github.com/robinebers/openusage/pull/904)) by @robinebers
+- Show Codex usage percentages as reported while keeping near-empty pacing calm ([#905](https://github.com/robinebers/openusage/pull/905)) by @robinebers
+
+### Refactor
+- Remove unused UI plumbing ([#883](https://github.com/robinebers/openusage/pull/883)) by @robinebers
+- Simplify refresh coalescing, popover visibility, and model-share computation ([#891](https://github.com/robinebers/openusage/pull/891), [#893](https://github.com/robinebers/openusage/pull/893), [#894](https://github.com/robinebers/openusage/pull/894)) by @robinebers
+- Extract layout persistence, startup rules, dashboard sections, and panel management into focused components ([#895](https://github.com/robinebers/openusage/pull/895), [#896](https://github.com/robinebers/openusage/pull/896), [#897](https://github.com/robinebers/openusage/pull/897), [#898](https://github.com/robinebers/openusage/pull/898), [#899](https://github.com/robinebers/openusage/pull/899), [#900](https://github.com/robinebers/openusage/pull/900), [#902](https://github.com/robinebers/openusage/pull/902)) by @robinebers
+
+### Chores
+- Refresh pricing and panel documentation ([#884](https://github.com/robinebers/openusage/pull/884)) by @robinebers
+- Test the real metric-divider path ([#892](https://github.com/robinebers/openusage/pull/892)) by @robinebers
+
+---
+
+### Changelog
+**Full Changelog**: [v0.7.4-beta.3...v0.7.4-beta.4](https://github.com/robinebers/openusage/compare/v0.7.4-beta.3...v0.7.4-beta.4)
+
+- [a1bdc28](https://github.com/robinebers/openusage/commit/a1bdc288939a9fa8477efed3a2e7bdfbf570d899) Keep near-empty Codex pacing calm by @robinebers
+- [5fbc22b](https://github.com/robinebers/openusage/commit/5fbc22b3669b34ebd621765d86b7b8e8ddd211e8) Show Codex usage percentages as reported by @robinebers
+- [2da68aa](https://github.com/robinebers/openusage/commit/2da68aa4a5f91cb9b77deee2b2e94ca4dd7daf38) Capture display before measuring panel height by @robinebers
+- [4c53fb1](https://github.com/robinebers/openusage/commit/4c53fb1b8fa189900ad28a2cd25d73c21306ed21) Preserve the first panel height on open by @robinebers
+- [ac6a3e3](https://github.com/robinebers/openusage/commit/ac6a3e3e12fe2fb1c7e0eceb098f1683ec1bac3c) Extract panel outside-click handling by @robinebers
+- [07a35bd](https://github.com/robinebers/openusage/commit/07a35bd7b82ebdd63a3257828f1f8622d1dbde79) Extract panel height handling by @robinebers
+- [612d847](https://github.com/robinebers/openusage/commit/612d847893dc3f367ccf7d55bf09b10a5529bcf4) Extract popover footer by @robinebers
+- [dba66ad](https://github.com/robinebers/openusage/commit/dba66adac6b07673e0b84f63d108af808cea5399) Extract popover top bar by @robinebers
+- [0581cfc](https://github.com/robinebers/openusage/commit/0581cfc5f37c979d2d0d1fbfd3c601a37821cf6c) Extract dashboard scrolling content by @robinebers
+- [35842a9](https://github.com/robinebers/openusage/commit/35842a99b18c1364f31cf47780cb752556e1662a) Extract layout startup rules by @robinebers
+- [315e6b3](https://github.com/robinebers/openusage/commit/315e6b34749f64650186dee7bfe7a4ca921df3ee) Extract layout persistence by @robinebers
+- [a8750e7](https://github.com/robinebers/openusage/commit/a8750e70b785cf00ee118cb813b2b168f5c62d34) Keep unreadable log warnings quiet across batches by @robinebers
+- [76247d7](https://github.com/robinebers/openusage/commit/76247d7c7de32b38e1ee28d02144aef3453b8bee) Test the real metric divider path by @robinebers
+- [8ddc401](https://github.com/robinebers/openusage/commit/8ddc401ee97c6b740c5a65e17dec33630533cba6) Compute model shares once per render by @robinebers
+- [f44d4ef](https://github.com/robinebers/openusage/commit/f44d4ef783e2a7e380b131bc8a7a84fa2c51fbab) Use the controller popover visibility signal by @robinebers
+- [1040f53](https://github.com/robinebers/openusage/commit/1040f5356a29e1a0beb372ac36d205f28c0685b2) fix(claude): prefer profile-scoped login over inference-only env token for live usage by @joshuavial
+- [2d4a5b4](https://github.com/robinebers/openusage/commit/2d4a5b42ac8bb7c786901faee8002d22934d4ec4) Simplify menu bar refresh coalescing by @robinebers
+- [c0b190f](https://github.com/robinebers/openusage/commit/c0b190f13d3fa38eca8c1bc7a880ed4a35f47c9c) Log unreadable usage files once by @robinebers
+- [f8e02b5](https://github.com/robinebers/openusage/commit/f8e02b59228aaa49250b8bf4b49dfad9740ce64b) fix(pricing): price GPT-5.6 fast variants by @robinebers
+- [27ebb0b](https://github.com/robinebers/openusage/commit/27ebb0b9792579cd05ee13f4f6d743b9576a6ebc) Bound concurrent log parsing by @robinebers
+- [27bd492](https://github.com/robinebers/openusage/commit/27bd492ee1e907c0143d76bea8d8c030417f8516) Keep launch-at-login errors visible by @robinebers
+- [2669a7b](https://github.com/robinebers/openusage/commit/2669a7bbc6b1298c84d94e43b19fff93d4e1f40a) Mark Cursor spend as estimated by @robinebers
+- [e881be6](https://github.com/robinebers/openusage/commit/e881be608c07c9f544b5e6eab5e10e0eeaa55334) Fix request-wide long-context pricing by @robinebers
+- [1bcc8f9](https://github.com/robinebers/openusage/commit/1bcc8f9756dc07e4937b93f2bc92e1d6330eeee6) Refresh pricing and panel documentation by @robinebers
+- [4b61302](https://github.com/robinebers/openusage/commit/4b61302f1ff84d9747c9c398f1a59b8bfecff5f2) Remove unused UI plumbing by @robinebers
+- [3194f3b](https://github.com/robinebers/openusage/commit/3194f3baf7c436309a0f1d5f86487bee85e6f764) Clear resolved update banner by @robinebers
+- [c9be949](https://github.com/robinebers/openusage/commit/c9be949905038a4214fe011f5286ab79ee86112c) Add hover affordance to usage trend by @robinebers
+- [8a8ea33](https://github.com/robinebers/openusage/commit/8a8ea33c3e690da980b2832fa1c151330784608d) Add GPT-5.6 pricing aliases and tests by @robinebers
+
 ## v0.7.4-beta.3
 
 ### New Features

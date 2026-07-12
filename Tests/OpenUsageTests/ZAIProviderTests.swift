@@ -150,7 +150,7 @@ final class ZAIAuthStoreTests: XCTestCase {
         XCTAssertNil(store.loadAPIKey())
     }
 
-    // MARK: - In-app save / delete / status (Settings ▸ API Keys)
+    // MARK: - In-app save / delete / status (Customize → Z.ai → API Key)
 
     func testSaveAPIKeyWritesTrimmedJSONConfigFile() throws {
         let files = FakeFiles()
@@ -250,7 +250,7 @@ final class ZAIAuthStoreTests: XCTestCase {
 
 final class ZAIUsageMapperTests: XCTestCase {
     func testMapsBothLimitsToSessionAndWebSearches() throws {
-        let mapped = ZAIUsageMapper.map(quotaBody: data(quotaBothLimitsJSON), subscriptionBody: data(subscriptionJSON))
+        let mapped = try ZAIUsageMapper.map(quotaBody: data(quotaBothLimitsJSON), subscriptionBody: data(subscriptionJSON))
 
         XCTAssertEqual(mapped.plan, "GLM Coding Max")
 
@@ -292,7 +292,7 @@ final class ZAIUsageMapperTests: XCTestCase {
           "success": true
         }
         """#
-        let mapped = ZAIUsageMapper.map(quotaBody: data(divergentJSON), subscriptionBody: nil)
+        let mapped = try ZAIUsageMapper.map(quotaBody: data(divergentJSON), subscriptionBody: nil)
         XCTAssertEqual(try XCTUnwrap(progress(mapped.lines, "Session")).periodDurationMs,
                        3 * 60 * 60 * 1000)
         XCTAssertEqual(try XCTUnwrap(progress(mapped.lines, "Weekly")).periodDurationMs,
@@ -300,7 +300,7 @@ final class ZAIUsageMapperTests: XCTestCase {
     }
 
     func testMapsSessionOnlyWhenNoTimeLimit() throws {
-        let mapped = ZAIUsageMapper.map(quotaBody: data(quotaSessionOnlyJSON), subscriptionBody: nil)
+        let mapped = try ZAIUsageMapper.map(quotaBody: data(quotaSessionOnlyJSON), subscriptionBody: nil)
 
         XCTAssertNil(mapped.plan)
         XCTAssertNotNil(progress(mapped.lines, "Session"))
@@ -315,8 +315,8 @@ final class ZAIUsageMapperTests: XCTestCase {
         XCTAssertNil(ZAIUsageMapper.planName(from: data(#"{"data":[]}"#)))
     }
 
-    func testEmptyLimitsYieldNoUsageData() {
-        let mapped = ZAIUsageMapper.map(quotaBody: data(#"{"data":{"limits":[]}}"#), subscriptionBody: nil)
+    func testEmptyLimitsYieldNoUsageData() throws {
+        let mapped = try ZAIUsageMapper.map(quotaBody: data(#"{"data":{"limits":[]}}"#), subscriptionBody: nil)
         // No usable limits → the shared "No usage data" placeholder, not a blank tile.
         XCTAssertTrue(mapped.lines.contains { $0.label == "Status" })
     }
@@ -337,7 +337,7 @@ final class ZAIUsageMapperTests: XCTestCase {
         let body = data(#"""
         {"data":{"limits":[{"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":150,"currentValue":10,"usage":10}]}}
         """#)
-        let lines = ZAIUsageMapper.mapQuota(body)
+        let lines = try ZAIUsageMapper.mapQuota(body)
         let sessionUsed = try XCTUnwrap(progress(lines, "Session")?.used)
         XCTAssertEqual(sessionUsed, 100, accuracy: 0.001)
     }
@@ -347,7 +347,7 @@ final class ZAIUsageMapperTests: XCTestCase {
         let body = data(#"""
         {"data":{"limits":[{"type":"TOKENS_LIMIT","unit":6,"number":1,"percentage":25}]}}
         """#)
-        let lines = ZAIUsageMapper.mapQuota(body)
+        let lines = try ZAIUsageMapper.mapQuota(body)
         XCTAssertNil(progress(lines, "Session"))
         let weekly = try XCTUnwrap(progress(lines, "Weekly"))
         XCTAssertEqual(weekly.used, 25, accuracy: 0.001)
@@ -496,8 +496,6 @@ final class ZAIProviderTests: XCTestCase {
 
         XCTAssertEqual(provider.apiKeyStatus, .fromEnvironment)
         XCTAssertEqual(provider.currentAPIKey(), "zai-env")
-        XCTAssertEqual(provider.apiKeyEnvironmentName, "ZAI_API_KEY")
-        XCTAssertTrue(provider.apiKeyStorageDescription.contains("zai.json"))
 
         try provider.saveAPIKey("zai-saved")
         XCTAssertEqual(provider.apiKeyStatus, .overrideActive)
